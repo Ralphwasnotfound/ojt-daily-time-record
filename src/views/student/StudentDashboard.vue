@@ -1,9 +1,10 @@
 <script>
+import ExpandableList from '../../components/ExpandableList.vue'
 import { Plus, ArrowRight, Clock3, CalendarDays, GraduationCap, LogIn, LogOut, CodeXml, FileText, Headphones, Image } from 'lucide-vue-next'
 
 export default {
   name: 'StudentDashboard',
-  components: { Plus, ArrowRight, Clock3, CalendarDays, GraduationCap, LogIn, LogOut, CodeXml, FileText, Headphones, Image },
+  components: { ExpandableList, Plus, ArrowRight, Clock3, CalendarDays, GraduationCap, LogIn, LogOut, CodeXml, FileText, Headphones, Image },
   data() {
     return {
       // Static preview snapshot; replace with student records in a later phase.
@@ -82,8 +83,9 @@ export default {
       <section aria-labelledby="activity-heading" class="rounded-xl border border-stone-200 bg-white p-5 sm:p-6 xl:col-span-3">
         <h2 id="activity-heading" class="text-lg font-semibold text-stone-900">Recent Activity</h2>
         <p class="mt-1 text-sm text-stone-500">A snapshot of your latest work today.</p>
-        <ul class="mt-2 divide-y divide-stone-100">
-          <li v-for="activity in dashboard.activities" :key="activity.id" class="flex gap-3 py-5 last:pb-0">
+        <ExpandableList :items="dashboard.activities" v-slot="{ visibleItems }">
+<ul class="mt-2 divide-y divide-stone-100">
+          <li v-for="activity in visibleItems" :key="activity.id" class="flex gap-3 py-5 last:pb-0">
             <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-stone-50 text-brand"><component :is="activity.icon" :size="18" aria-hidden="true" /></span>
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"><h3 class="text-sm font-semibold text-stone-800">{{ activity.category }}</h3><span class="text-xs text-stone-500">{{ activity.time }}</span></div>
@@ -92,6 +94,7 @@ export default {
             </div>
           </li>
         </ul>
+</ExpandableList>
       </section>
     </div>
   </div>

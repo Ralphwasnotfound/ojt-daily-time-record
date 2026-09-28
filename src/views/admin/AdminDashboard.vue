@@ -1,9 +1,10 @@
 <script>
+import ExpandableList from '../../components/ExpandableList.vue'
 import { CalendarDays, Users, LogIn, LogOut, ClipboardList, ArrowRight, Image, CircleAlert } from 'lucide-vue-next'
 
 export default {
   name: 'AdminDashboard',
-  components: { CalendarDays, Users, LogIn, LogOut, ClipboardList, ArrowRight, Image, CircleAlert },
+  components: { ExpandableList, CalendarDays, Users, LogIn, LogOut, ClipboardList, ArrowRight, Image, CircleAlert },
   data() {
     return {
       date: new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }),
@@ -59,8 +60,9 @@ export default {
       <section aria-labelledby="students-heading" class="min-w-0 rounded-xl border border-stone-200 bg-white p-5 sm:p-6">
         <h2 id="students-heading" class="text-lg font-semibold text-stone-900">Student Status</h2>
         <p class="mt-1 text-sm leading-6 text-stone-500">A snapshot of student attendance.</p>
-        <ul class="mt-4 divide-y divide-stone-100">
-          <li v-for="student in students" :key="student.id" class="flex flex-wrap items-center justify-between gap-3 py-4">
+        <ExpandableList :items="students" v-slot="{ visibleItems }">
+<ul class="mt-4 divide-y divide-stone-100">
+          <li v-for="student in visibleItems" :key="student.id" class="flex flex-wrap items-center justify-between gap-3 py-4">
             <div class="min-w-0">
               <h3 class="break-words text-sm font-semibold text-stone-800">{{ student.name }}</h3>
               <p class="mt-1 text-xs leading-5 text-stone-500">{{ student.event }} · {{ student.time }}</p>
@@ -70,14 +72,16 @@ export default {
             </span>
           </li>
         </ul>
+</ExpandableList>
         <RouterLink to="/admin/students" class="mt-4 flex min-h-11 items-center justify-center gap-2 rounded-lg border border-stone-200 px-4 py-3 text-sm font-semibold text-brand hover:bg-stone-50">View All Students<ArrowRight :size="16" aria-hidden="true" /></RouterLink>
       </section>
 
       <section aria-labelledby="recent-heading" class="min-w-0 rounded-xl border border-stone-200 bg-white p-5 sm:p-6">
         <h2 id="recent-heading" class="text-lg font-semibold text-stone-900">Recent Activity</h2>
         <p class="mt-1 text-sm leading-6 text-stone-500">Latest submissions from the class.</p>
-        <ul class="mt-4 divide-y divide-stone-100">
-          <li v-for="activity in recentActivities" :key="activity.id" class="py-4">
+        <ExpandableList :items="recentActivities" v-slot="{ visibleItems }">
+<ul class="mt-4 divide-y divide-stone-100">
+          <li v-for="activity in visibleItems" :key="activity.id" class="py-4">
             <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
               <h3 class="text-sm font-semibold text-stone-800">{{ activity.student }}</h3>
               <span class="text-xs text-stone-500">{{ activity.time }}</span>
@@ -87,6 +91,7 @@ export default {
             <p v-if="activity.hasPhoto" class="mt-2 flex items-center gap-1.5 text-xs text-stone-500"><Image :size="14" aria-hidden="true" />Photo attached</p>
           </li>
         </ul>
+</ExpandableList>
         <RouterLink to="/admin/activity" class="mt-4 flex min-h-11 items-center justify-center gap-2 rounded-lg border border-stone-200 px-4 py-3 text-sm font-semibold text-brand hover:bg-stone-50">View Activity Monitor<ArrowRight :size="16" aria-hidden="true" /></RouterLink>
       </section>
     </div>

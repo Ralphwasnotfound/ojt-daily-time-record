@@ -1,9 +1,10 @@
 <script>
+import ExpandableList from '../../components/ExpandableList.vue'
 import { Image, Clock3 } from 'lucide-vue-next'
 
 export default {
   name: 'HistoryView',
-  components: { Image, Clock3 },
+  components: { ExpandableList, Image, Clock3 },
   data() {
     return {
       activeTab: 'attendance',
@@ -152,30 +153,34 @@ export default {
       </div>
       <div v-show="activeTab === 'attendance'" id="panel-attendance" role="tabpanel" aria-labelledby="tab-attendance" tabindex="0">
         <h2 class="sr-only">Attendance records</h2>
-      <table class="mt-5 hidden w-full text-left text-sm xl:table">
+      <ExpandableList :items="filteredAttendance" v-slot="{ visibleItems }">
+<table class="mt-5 hidden w-full text-left text-sm xl:table">
         <caption class="sr-only">Recent mock attendance records</caption>
         <thead class="border-y border-stone-200 bg-stone-50 text-xs text-stone-500"><tr><th scope="col" class="px-3 py-3 font-medium">Date</th><th scope="col" class="px-3 py-3 font-medium">Day</th><th scope="col" class="px-3 py-3 font-medium">Time In</th><th scope="col" class="px-3 py-3 font-medium">Time Out</th><th scope="col" class="px-3 py-3 font-medium">Hours</th><th scope="col" class="px-3 py-3 font-medium">Status</th></tr></thead>
-        <tbody class="divide-y divide-stone-100"><tr v-for="record in filteredAttendance" :key="record.id"><th scope="row" class="px-3 py-4 font-medium text-stone-800">{{ record.date }}</th><td class="px-3 py-4 text-stone-500">{{ record.day }}</td><td class="px-3 py-4">{{ record.timeIn }}</td><td class="px-3 py-4">{{ record.timeOut }}</td><td class="px-3 py-4">{{ record.hours }}</td><td class="px-3 py-4"><span class="rounded-full px-2.5 py-1 text-xs font-medium" :class="badgeClass(record.status)">{{ record.status }}</span></td></tr></tbody>
+        <tbody class="divide-y divide-stone-100"><tr v-for="record in visibleItems" :key="record.id"><th scope="row" class="px-3 py-4 font-medium text-stone-800">{{ record.date }}</th><td class="px-3 py-4 text-stone-500">{{ record.day }}</td><td class="px-3 py-4">{{ record.timeIn }}</td><td class="px-3 py-4">{{ record.timeOut }}</td><td class="px-3 py-4">{{ record.hours }}</td><td class="px-3 py-4"><span class="rounded-full px-2.5 py-1 text-xs font-medium" :class="badgeClass(record.status)">{{ record.status }}</span></td></tr></tbody>
       </table>
       <ul class="mt-5 space-y-3 xl:hidden">
-        <li v-for="record in filteredAttendance" :key="record.id" class="rounded-lg border border-stone-200 p-4">
+        <li v-for="record in visibleItems" :key="record.id" class="rounded-lg border border-stone-200 p-4">
           <div class="flex flex-wrap items-start justify-between gap-2"><div><h3 class="text-sm font-semibold text-stone-800">{{ record.date }}</h3><p class="mt-1 text-xs text-stone-500">{{ record.day }}</p></div><span class="rounded-full px-2.5 py-1 text-xs font-medium" :class="badgeClass(record.status)">{{ record.status }}</span></div>
           <dl class="mt-4 grid grid-cols-2 gap-3 text-sm"><div><dt class="text-xs text-stone-500">Time In</dt><dd class="mt-1">{{ record.timeIn }}</dd></div><div><dt class="text-xs text-stone-500">Time Out</dt><dd class="mt-1">{{ record.timeOut }}</dd></div><div class="col-span-2 flex items-center justify-between gap-2 border-t border-stone-100 pt-3"><dt class="flex items-center gap-2 text-xs text-stone-500"><Clock3 :size="14" aria-hidden="true" />Rendered hours</dt><dd class="font-medium">{{ record.hours }}</dd></div></dl>
         </li>
       </ul>
+</ExpandableList>
 
       </div>
       <div v-show="activeTab === 'activity'" id="panel-activity" role="tabpanel" aria-labelledby="tab-activity" tabindex="0">
         <h2 class="sr-only">Activity update records</h2>
         <p v-if="!filteredActivities.length" role="status" class="rounded-lg bg-stone-50 p-6 text-center text-sm text-stone-500">No sample activities match these filters.</p>
-        <ul v-else class="space-y-4">
-          <li v-for="activity in filteredActivities" :key="activity.id" class="rounded-lg border border-stone-200 p-4 sm:p-5">
+        <ExpandableList v-else :items="filteredActivities" v-slot="{ visibleItems }">
+<ul class="space-y-4">
+          <li v-for="activity in visibleItems" :key="activity.id" class="rounded-lg border border-stone-200 p-4 sm:p-5">
             <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-stone-500"><span>{{ activity.date }}</span><span class="inline-flex items-center gap-1.5"><Clock3 :size="14" aria-hidden="true" />{{ activity.time }}</span></div>
             <h3 class="mt-3 text-sm font-semibold text-brand">{{ activity.category }}</h3>
             <p class="mt-2 text-sm leading-6 text-stone-600">{{ activity.description }}</p>
             <p class="mt-3 flex items-center gap-2 text-xs text-stone-500"><Image :size="16" aria-hidden="true" />{{ activity.hasPhoto ? 'Photo attached' : 'No photo attached' }}</p>
           </li>
         </ul>
+</ExpandableList>
       </div>
     </section>
   </div>
