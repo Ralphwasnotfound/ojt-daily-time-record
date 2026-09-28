@@ -1,8 +1,9 @@
 <script>
+import PendingRegistrations from '../../components/PendingRegistrations.vue'
 import { Users, LogIn, LogOut, Search, ArrowRight } from 'lucide-vue-next'
 export default {
   name: 'StudentsView',
-  components: { Users, LogIn, LogOut, Search, ArrowRight },
+  components: { PendingRegistrations, Users, LogIn, LogOut, Search, ArrowRight },
   data() {
     return {
       searchQuery: '', statusFilter: '', activityFilter: '',
@@ -146,7 +147,9 @@ export default {
 <template>
   <div class="space-y-6">
     <header><h1 class="text-2xl font-semibold text-stone-900 sm:text-3xl">Students</h1><p class="mt-2 text-sm leading-6 text-stone-600">Monitor registered OJT students and their current attendance status.</p></header>
-    <p class="border-l-2 border-brand-gold pl-3 text-xs leading-5 text-stone-500">Mock preview: eight sample students are shown. Class totals are illustrative and do not change with filters.</p>
+    <PendingRegistrations />
+    <h2 class="text-lg font-semibold">Demonstration Directory</h2>
+    <p class="border-l-2 border-brand-gold pl-3 text-xs leading-5 text-stone-500">Mock preview: eight sample students are shown below. They are not Firestore users. Class totals are illustrative and do not change with filters.</p>
     <dl class="grid gap-4 sm:grid-cols-3"><div v-for="item in summary" :key="item.label" class="rounded-xl border border-stone-200 bg-white p-5"><dt class="flex items-center justify-between gap-3 text-sm text-stone-500">{{ item.label }}<component :is="item.icon" :size="18" class="text-brand" aria-hidden="true" /></dt><dd class="mt-3 text-2xl font-semibold">{{ item.value }}</dd></div></dl>
     <section aria-label="Student records" class="min-w-0 rounded-xl border border-stone-200 bg-white p-4 sm:p-6">
       <div class="grid gap-4 md:grid-cols-3">

@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function admin() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'approved';
+    }
+    function validStudent(d, uid) {
+      return d.keys().hasAll(['uid','fullName','studentId','email','role','status','program','yearLevel','requiredHours','createdAt','approvedAt','approvedBy'])
+        && d.keys().hasOnly(['uid','fullName','studentId','email','role','status','program','yearLevel','requiredHours','createdAt','approvedAt','approvedBy'])
+        && d.uid == uid && d.role == 'student' && d.status == 'pending'
+        && d.fullName is string && d.fullName.size() > 0 && d.fullName.size() <= 100
+        && d.studentId is string && d.studentId.matches('^[A-Z0-9][A-Z0-9-]{2,29}$')
+        && d.email == request.auth.token.email
+        && d.program == 'BS Information Technology'
+        && d.yearLevel in ['1st Year','2nd Year','3rd Year','4th Year']
+        && d.requiredHours == 486 && d.createdAt == request.time
+        && d.approvedAt == null && d.approvedBy == null;
+    }
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || (admin() && resource.data.role == 'student'));
+      allow list: if admin() && resource.data.role == 'student';
+      allow create: if signedIn() && request.auth.uid == uid
+        && validStudent(request.resource.data, uid)
+        && !exists(/databases/$(database)/documents/studentIds/$(request.resource.data.studentId))
+        && getAfter(/databases/$(database)/documents/studentIds/$(request.resource.data.studentId)).data.uid == uid;
+      // Phase 2: self-edit is deliberately disabled. Later allowlist workplace/contact fields
+      // only after validation; identity, roles, status and approval metadata stay immutable.
+      allow update: if admin() && resource.data.role == 'student' && resource.data.status == 'pending'
+        && (
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','approvedAt','approvedBy'])
+            && request.resource.data.status == 'approved'
+            && request.resource.data.approvedAt == request.time
+            && request.resource.data.approvedBy == request.auth.uid)
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+            && request.resource.data.status == 'rejected')
+        );
+      allow delete: if false;
+    }
+    match /studentIds/{studentId} {
+      allow read: if admin();
+      allow create: if signedIn()
+        && studentId.matches('^[A-Z0-9][A-Z0-9-]{2,29}$')
+        && request.resource.data.keys().hasOnly(['uid','createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && !exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.studentId == studentId
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'student'
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'pending';
+      // Reservations remain after rejection. Only trusted Console/Admin SDK maintenance can release them.
+      allow update, delete: if false;
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

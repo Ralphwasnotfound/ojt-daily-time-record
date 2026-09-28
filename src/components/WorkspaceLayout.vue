@@ -2,10 +2,12 @@
 import { ArrowLeft, Menu, X, UserRound, LogOut, LayoutDashboard, Clock, ClipboardPen, History, Users, Activity } from 'lucide-vue-next'
 
 import logoUrl from '../assets/bsit-logo.png'
+import LogoutDialog from './LogoutDialog.vue'
+import { logout } from '../services/auth'
 
 export default {
   name: 'WorkspaceLayout',
-  components: { ArrowLeft, Menu, X, UserRound, LogOut, LayoutDashboard, Clock, ClipboardPen, History, Users, Activity },
+  components: { LogoutDialog, ArrowLeft, Menu, X, UserRound, LogOut, LayoutDashboard, Clock, ClipboardPen, History, Users, Activity },
   props: {
     role: { type: String, required: true },
     items: { type: Array, required: true },
@@ -13,6 +15,9 @@ export default {
   data() {
     return {
       logoUrl,
+      logoutOpen: false,
+      signingOut: false,
+      logoutError: '',
       drawerOpen: false,
       isDesktop: false,
       desktopQuery: null,
@@ -37,6 +42,33 @@ export default {
     if (this.drawerOpen) document.body.style.overflow = this.previousOverflow
   },
   methods: {
+    openLogout() {
+      if (this.drawerOpen) this.closeDrawer(false)
+      this.logoutError = ''
+      this.logoutOpen = true
+    },
+    cancelLogout() {
+      if (this.signingOut) return
+      this.logoutOpen = false
+      this.$nextTick(() => {
+        if (this.isDesktop || this.drawerOpen) this.$refs.logoutButton.focus()
+        else this.$refs.menuButton.focus()
+      })
+    },
+    async confirmLogout() {
+      if (this.signingOut) return
+      this.signingOut = true
+      this.logoutError = ''
+      try {
+        await logout()
+        this.logoutOpen = false
+        await this.$router.replace('/')
+      } catch {
+        this.logoutError = 'Unable to log out. Please try again.'
+      } finally {
+        this.signingOut = false
+      }
+    },
     isSelected(item) {
       return this.$route.path === item.to || (!item.exact && this.$route.path.startsWith(item.to + '/'))
     },
@@ -126,9 +158,8 @@ export default {
 
       <div class="mt-auto px-5 pt-10 pb-6">
         <div class="space-y-1 border-t border-white/15 pt-4">
-          <button type="button" disabled class="sidebar-placeholder"><UserRound :size="20" aria-hidden="true" />Profile<span class="ml-auto text-xs">Coming later</span></button>
-          <button type="button" disabled class="sidebar-placeholder"><LogOut :size="20" aria-hidden="true" />Logout<span class="ml-auto text-xs">Coming later</span></button>
-          <RouterLink to="/" class="sidebar-link"><ArrowLeft :size="20" aria-hidden="true" />Back to login</RouterLink>
+          <RouterLink :to="'/' + role.toLowerCase() + '/profile'" class="sidebar-link" :class="{ 'sidebar-link-selected': $route.path === '/' + role.toLowerCase() + '/profile' }"><UserRound :size="20" aria-hidden="true" />Profile</RouterLink>
+          <button ref="logoutButton" type="button" class="sidebar-link w-full" @click="openLogout"><LogOut :size="20" aria-hidden="true" />Logout</button>
         </div>
       </div>
     </aside>
@@ -146,5 +177,6 @@ export default {
         <slot />
       </main>
     </div>
+    <LogoutDialog v-if="logoutOpen" :busy="signingOut" :error="logoutError" @cancel="cancelLogout" @confirm="confirmLogout" />
   </div>
 </template>

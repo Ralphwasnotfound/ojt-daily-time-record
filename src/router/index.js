@@ -1,4 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { watch } from 'vue'
+import { authReady, authState, refreshProfile } from '../services/auth'
+import { routeRedirect } from '../services/accountPolicy'
+import SignupView from '../views/auth/SignupView.vue'
+import PendingView from '../views/auth/PendingView.vue'
 import LoginView from '../views/auth/LoginView.vue'
 import StudentLayout from '../layouts/StudentLayout.vue'
 import AdminLayout from '../layouts/AdminLayout.vue'
@@ -10,30 +15,38 @@ import AdminDashboard from '../views/admin/AdminDashboard.vue'
 import StudentsView from '../views/admin/StudentsView.vue'
 import StudentDetailsView from '../views/admin/StudentDetailsView.vue'
 import ActivityMonitorView from '../views/admin/ActivityMonitorView.vue'
+import StudentProfileView from '../views/student/StudentProfileView.vue'
+import AdminProfileView from '../views/admin/AdminProfileView.vue'
 
-// Routes are public during Phase 1. Authentication will be added later.
+// Role/status is loaded from Firestore; Security Rules enforce data access independently.
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/', name: 'login', component: LoginView },
+    { path: '/signup', name: 'signup', component: SignupView },
+    { path: '/pending', name: 'pending', component: PendingView, meta: { requiresAuth: true } },
     {
       path: '/student',
+      meta: { requiresAuth: true, role: 'student' },
       component: StudentLayout,
       children: [
         { path: '', name: 'student-dashboard', component: StudentDashboard },
         { path: 'attendance', name: 'student-attendance', component: AttendanceView },
         { path: 'activity', name: 'student-activity', component: ActivityView },
         { path: 'history', name: 'student-history', component: HistoryView },
+        { path: 'profile', name: 'student-profile', component: StudentProfileView },
       ],
     },
     {
       path: '/admin',
+      meta: { requiresAuth: true, role: 'admin' },
       component: AdminLayout,
       children: [
         { path: '', name: 'admin-dashboard', component: AdminDashboard },
         { path: 'students', name: 'admin-students', component: StudentsView },
         { path: 'students/:id', name: 'admin-student-details', component: StudentDetailsView, props: true },
         { path: 'activity', name: 'admin-activity', component: ActivityMonitorView },
+        { path: 'profile', name: 'admin-profile', component: AdminProfileView },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -41,6 +54,20 @@ const router = createRouter({
   scrollBehavior() {
     return { top: 0 }
   },
+})
+
+router.beforeEach(async to => {
+  await authReady
+  // Read from the server on navigation, never authorize using an offline cached profile.
+  if (authState.user && !authState.registering) await refreshProfile()
+  return routeRedirect(to, authState.user, authState.profile, authState.profileError) || undefined
+})
+
+// Also react to sign-out in another tab while a protected page is already open.
+watch(() => authState.user, user => {
+  if (authState.initialized && !user && router.currentRoute.value.meta.requiresAuth) {
+    router.replace('/')
+  }
 })
 
 export default router
