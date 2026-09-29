@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, isNavigationFailure, NavigationFailureType } from 'vue-router'
 import { watch } from 'vue'
 import { authReady, authState, refreshProfile } from '../services/auth'
 import { routeRedirect } from '../services/accountPolicy'
@@ -18,12 +18,12 @@ import ActivityMonitorView from '../views/admin/ActivityMonitorView.vue'
 import StudentProfileView from '../views/student/StudentProfileView.vue'
 import AdminProfileView from '../views/admin/AdminProfileView.vue'
 
-// Role/status is loaded from Firestore; Security Rules enforce data access independently.
+// Supabase profiles supply role/status; RLS and trusted RPCs enforce database access.
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/', name: 'login', component: LoginView },
-    { path: '/signup', name: 'signup', component: SignupView },
+    { path: '/signup', name: 'signup', component: SignupView, meta: { requiresAuth: true } },
     { path: '/pending', name: 'pending', component: PendingView, meta: { requiresAuth: true } },
     {
       path: '/student',
@@ -56,18 +56,28 @@ const router = createRouter({
   },
 })
 
+let navigating = false
 router.beforeEach(async to => {
+  navigating = true
   await authReady
   // Read from the server on navigation, never authorize using an offline cached profile.
   if (authState.user && !authState.registering) await refreshProfile()
   return routeRedirect(to, authState.user, authState.profile, authState.profileError) || undefined
 })
 
-// Also react to sign-out in another tab while a protected page is already open.
-watch(() => authState.user, user => {
-  if (authState.initialized && !user && router.currentRoute.value.meta.requiresAuth) {
-    router.replace('/')
-  }
+// Do not start a competing redirect while a guard is fetching its profile.
+function enforceAccountRoute() {
+  if (navigating || !authState.initialized || authState.profileLoading || authState.registering) return
+  const target = routeRedirect(router.currentRoute.value, authState.user, authState.profile, authState.profileError)
+  if (target) router.replace(target)
+}
+router.afterEach((_to, _from, failure) => {
+  // A cancelled navigation was superseded; the newer navigation still owns this state.
+  if (isNavigationFailure(failure, NavigationFailureType.cancelled)) return
+  navigating = false
+  enforceAccountRoute()
 })
+watch(() => [authState.user, authState.profile, authState.profileError, authState.profileLoading], enforceAccountRoute)
 
 export default router
+

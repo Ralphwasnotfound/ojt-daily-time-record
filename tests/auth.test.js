@@ -3,165 +3,169 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { SourceTextModule, SyntheticModule } from 'node:vm'
 import { shallowReactive } from 'vue'
-import * as policy from '../src/services/accountPolicy.js'
-
-// Isolated SDK substitutes test service behavior; they do not authenticate with Firebase.
+import * as policy from '../src/firebase/reference/accountPolicy.js'
+const googleUser = { uid: 'google-user', email: 'student@example.com', displayName: 'Student', emailVerified: true, providerData: [{ providerId: 'google.com' }] }
+const form = { fullName: 'Student', studentId: '2026-015', program: 'BS Information Technology' }
 async function service(options = {}) {
-  let listener
-  let errorListener
+  let listener, errorListener
   const calls = []
   const auth = { currentUser: null }
   const emit = user => { auth.currentUser = user; return listener(user) }
-  const users = {
-    readProfile: options.readProfile || (async uid => ({ uid, role: 'student', status: 'approved' })),
-    createStudentProfile: options.createStudentProfile || (async () => {}),
-  }
   const sdk = {
-    onAuthStateChanged(auth, next, error) { listener = next; errorListener = error },
-    async setPersistence(auth, mode) { calls.push(['persistence', mode]) },
-    async signInWithEmailAndPassword(auth, email, password) {
-      calls.push(['login', email, password])
-      const user = { uid: 'test-user' }
-      emit(user)
-      return { user }
-    },
-    async signOut() { calls.push(['logout']); emit(null) },
-    async createUserWithEmailAndPassword() {
-      const user = { uid: 'new-user', email: 'student@example.com' }
-      emit(user)
-      return { user }
-    },
-    async deleteUser() { calls.push(['delete']); emit(null) },
+    onAuthStateChanged(a, next, error) { listener = next; errorListener = error },
+    async setPersistence(a, mode) { calls.push(['persistence', mode]) },
+    GoogleAuthProvider: class { setCustomParameters(value) { calls.push(['parameters', value]) } },
+    async signInWithPopup() { calls.push(['google']); await emit(googleUser); return { user: googleUser } },
+    async signOut() { calls.push(['logout']); await emit(null) },
     browserLocalPersistence: 'local',
-    browserSessionPersistence: 'session',
   }
-  const module = new SourceTextModule(await readFile(new URL('../src/services/auth.js', import.meta.url), 'utf8'))
+  const users = {
+    readProfile: options.readProfile || (async () => null),
+    createStudentProfile: options.createStudentProfile || (async (user, input) => { calls.push(['register', user, input]) }),
+  }
+  const module = new SourceTextModule(await readFile(new URL('../src/firebase/reference/auth.js', import.meta.url), 'utf8'), {
+    initializeImportMeta(meta) { meta.env = { DEV: options.dev ?? false } },
+  })
   await module.link(specifier => {
-    const exports = specifier === 'vue' ? { shallowReactive }
-      : specifier === 'firebase/auth' ? sdk
-      : specifier === './users' ? users
-      : specifier === './accountPolicy' ? policy : { auth }
-    return new SyntheticModule(Object.keys(exports), function () {
-      for (const [name, value] of Object.entries(exports)) this.setExport(name, value)
-    })
+    const exports = specifier === 'vue' ? { shallowReactive } : specifier === 'firebase/auth' ? sdk : specifier === './users' ? users : specifier === './accountPolicy' ? policy : { auth }
+    return new SyntheticModule(Object.keys(exports), function () { for (const [key, value] of Object.entries(exports)) this.setExport(key, value) })
   })
   await module.evaluate()
   return { api: module.namespace, calls, restore: emit, fail: () => errorListener() }
 }
-
-test('waits for the observer before declaring authentication initialized', async () => {
-  const { api, restore } = await service()
+test('Auth initialization waits for the server profile', async () => {
+  let finish
+  const { api, restore } = await service({ readProfile: () => new Promise(resolve => { finish = resolve }) })
+  const loading = restore(googleUser)
   assert.equal(api.authState.initialized, false)
-  let ready = false
-  api.authReady.then(() => { ready = true })
-  await Promise.resolve()
-  assert.equal(ready, false)
-  restore({ uid: 'restored-user' })
+  assert.equal(api.authState.profileLoading, true)
+  finish({ uid: googleUser.uid, role: 'admin', status: 'approved' })
+  await loading
   await api.authReady
-  assert.equal(api.authState.initialized, true)
-  assert.equal(api.authState.user.uid, 'restored-user')
-  restore(null)
-  assert.equal(api.authState.user, null)
+  assert.equal(api.authState.profile.role, 'admin')
 })
-
-test('login delegates persistence and credentials to the SDK; logout delegates signOut', async () => {
-  const { api, calls, restore } = await service()
-  restore(null)
-  await api.login(' preview@example.com ', 'test-only', true)
+test('Google sign-in uses persistent Firebase session; logout clears it', async () => {
+  const { api, restore, calls } = await service()
+  await restore(null)
+  await api.loginWithGoogle()
   assert.deepEqual(calls[0], ['persistence', 'local'])
-  assert.deepEqual(calls[1], ['login', 'preview@example.com', 'test-only'])
+  assert.ok(calls.some(call => call[0] === 'google'))
+  assert.equal(policy.accountDestination(api.authState.user, api.authState.profile), '/signup')
   await api.logout()
   assert.equal(api.authState.user, null)
-  assert.deepEqual(calls[2], ['logout'])
-  await api.login('preview@example.com', 'test-only', false)
-  assert.deepEqual(calls[3], ['persistence', 'session'])
 })
-
-test('observer failure settles readiness and fails closed', async () => {
-  const { api, fail } = await service()
-  fail()
-  await api.authReady
-  assert.equal(api.authState.user, null)
-  assert.ok(api.authState.error)
-  await assert.rejects(api.login('preview@example.com', 'test-only', false))
-})
-
-test('credential errors do not disclose account existence or raw messages', async () => {
-  const { api } = await service()
-  const codes = ['auth/user-not-found', 'auth/wrong-password', 'auth/invalid-credential', 'auth/user-disabled']
-  const messages = codes.map(code => api.loginErrorMessage({ code, message: 'raw SDK details' }))
-  assert.equal(new Set(messages).size, 1)
-  assert.equal(messages[0], 'Unable to sign in. Check your email and password.')
-  assert.match(api.loginErrorMessage({ code: 'auth/network-request-failed' }), /connection/)
-})
-
-const signup = {
-  fullName: 'Test Student', studentId: '2026-015', email: 'student@example.com',
-  program: 'BS Information Technology', yearLevel: '4th Year',
-  password: 'test-only-password', confirmPassword: 'test-only-password',
-}
-
-test('routing fails closed and sends each approved role to its own workspace', () => {
-  const user = { uid: 'student' }
-  const student = { uid: user.uid, role: 'student', status: 'approved' }
+test('routing separates incomplete, pending, approved and invalid accounts', () => {
+  const student = { uid: googleUser.uid, role: 'student', status: 'approved' }
   const admin = { ...student, role: 'admin' }
   const studentRoute = { path: '/student/history', meta: { requiresAuth: true, role: 'student' } }
   const adminRoute = { path: '/admin/students', meta: { requiresAuth: true, role: 'admin' } }
   assert.equal(policy.routeRedirect(studentRoute, null, null), '/')
-  assert.equal(policy.routeRedirect(adminRoute, user, student), '/student')
-  assert.equal(policy.routeRedirect(studentRoute, user, admin), '/admin')
-  assert.equal(policy.routeRedirect(studentRoute, user, student), null)
-  assert.equal(policy.routeRedirect(adminRoute, user, admin), null)
-  for (const profile of [null, { ...student, status: 'pending' }, { ...student, status: 'rejected' }, { ...student, role: 'unknown' }, { ...student, uid: 'other' }]) {
-    assert.equal(policy.routeRedirect(studentRoute, user, profile), '/pending')
-    assert.equal(policy.routeRedirect(adminRoute, user, profile), '/pending')
-    assert.equal(policy.routeRedirect({ path: '/pending', meta: {} }, user, profile), null)
+  assert.equal(policy.routeRedirect({ path: '/signup', meta: { requiresAuth: true } }, null, null), '/')
+  assert.equal(policy.routeRedirect(studentRoute, googleUser, null), '/signup')
+  assert.equal(policy.routeRedirect({ path: '/signup', meta: {} }, googleUser, null), null)
+  assert.equal(policy.routeRedirect(adminRoute, googleUser, student), '/student')
+  assert.equal(policy.routeRedirect(studentRoute, googleUser, admin), '/admin')
+  assert.equal(policy.routeRedirect(studentRoute, googleUser, student), null)
+  for (const profile of [{ ...student, status: 'pending' }, { ...student, status: 'rejected' }, { ...student, role: 'unknown' }, { ...student, uid: 'other' }]) {
+    assert.equal(policy.routeRedirect(adminRoute, googleUser, profile), '/pending')
+    assert.equal(policy.routeRedirect({ path: '/signup', meta: {} }, googleUser, profile), '/pending')
   }
-  assert.equal(policy.accountDestination(user, admin, 'offline'), '/pending')
-  for (const path of ['/', '/signup']) {
-    assert.equal(policy.routeRedirect({ path, meta: {} }, user, student), '/student')
-    assert.equal(policy.routeRedirect({ path, meta: {} }, user, admin), '/admin')
-  }
+  assert.equal(policy.accountDestination(googleUser, null, 'offline'), '/pending')
+  assert.equal(policy.accountDestination({ uid: 'legacy' }, null), '/pending')
 })
-
-test('signup validates identity, allowed program/year and passwords', () => {
-  assert.equal(policy.validateSignup(signup), '')
-  for (const patch of [{ fullName: ' ' }, { studentId: '../bad' }, { email: 'invalid' }, { program: 'Other' }, { yearLevel: 'Other' }, { password: 'short' }, { confirmPassword: 'different' }]) {
-    assert.ok(policy.validateSignup({ ...signup, ...patch }))
-  }
+test('registration validates only requested student fields', () => {
+  assert.equal(policy.validateSignup(form), '')
+  for (const patch of [{ fullName: ' ' }, { studentId: '../bad' }, { program: 'Other' }]) assert.ok(policy.validateSignup({ ...form, ...patch }))
   assert.equal(policy.normalizeStudentId(' ab-123 '), 'AB-123')
 })
-
-test('failed profile creation cleans up only a verified missing profile', async () => {
-  const { api, restore, calls } = await service({
-    readProfile: async () => null,
-    createStudentProfile: async () => { throw new Error('denied') },
+test('registration requires verified Google identity', async () => {
+  const { api, restore } = await service()
+  await restore(null)
+  await assert.rejects(api.registerStudent(form), /Continue with Google/)
+  await restore({ ...googleUser, emailVerified: false })
+  await assert.rejects(api.registerStudent(form), /Continue with Google/)
+})
+test('registration persists profile and preserves Google identity', async () => {
+  let profile = null
+  const { api, restore } = await service({
+    readProfile: async () => profile,
+    createStudentProfile: async user => { profile = { uid: user.uid, role: 'student', status: 'pending' } },
   })
-  restore(null)
-  await assert.rejects(api.registerStudent(signup), /could not be completed/)
-  assert.ok(calls.some(call => call[0] === 'delete'))
-  assert.equal(api.authState.user, null)
+  await restore(googleUser)
+  await api.registerStudent(form)
+  assert.equal(policy.accountDestination(api.authState.user, api.authState.profile), '/pending')
   assert.equal(api.authState.registering, false)
 })
-
-test('uncertain profile commit does not delete the Auth user', async () => {
-  const { api, restore, calls } = await service({
-    readProfile: async () => { throw new Error('offline') },
-    createStudentProfile: async () => { throw new Error('offline') },
-  })
-  restore(null)
-  await assert.rejects(api.registerStudent(signup), /could not be verified/)
-  assert.ok(!calls.some(call => call[0] === 'delete'))
-  assert.equal(policy.accountDestination(api.authState.user, api.authState.profile), '/pending')
+test('existing approved admin profile is never replaced by student registration', async () => {
+  const profile = { uid: googleUser.uid, role: 'admin', status: 'approved' }
+  const { api, restore, calls } = await service({ readProfile: async () => profile })
+  await restore(googleUser)
+  await api.registerStudent(form)
+  assert.ok(!calls.some(call => call[0] === 'register'))
+  assert.equal(api.authState.profile.role, 'admin')
 })
-
+test('failed batch retains Google user and permits retry', async () => {
+  const { api, restore } = await service({ createStudentProfile: async () => { throw new Error('duplicate') } })
+  await restore(googleUser)
+  await assert.rejects(api.registerStudent(form), /could not be completed/)
+  assert.equal(api.authState.user.uid, googleUser.uid)
+  assert.equal(api.authState.registering, false)
+  assert.equal(policy.accountDestination(api.authState.user, api.authState.profile), '/signup')
+})
 test('late profile reads cannot restore access after logout', async () => {
   let finish
   const { api, restore } = await service({ readProfile: () => new Promise(resolve => { finish = resolve }) })
-  const restoring = restore({ uid: 'old' })
+  const restoring = restore(googleUser)
   await restore(null)
-  finish({ uid: 'old', role: 'admin', status: 'approved' })
+  finish({ uid: googleUser.uid, role: 'admin', status: 'approved' })
   await restoring
   assert.equal(api.authState.profile, null)
-  assert.equal(api.authState.user, null)
+})
+test('observer and popup errors are friendly and fail closed', async () => {
+  const { api, fail } = await service()
+  fail()
+  await api.authReady
+  await assert.rejects(api.loginWithGoogle())
+  for (const code of ['auth/popup-blocked', 'auth/popup-closed-by-user', 'auth/unauthorized-domain', 'auth/account-exists-with-different-credential']) {
+    assert.ok(api.loginErrorMessage({ code }))
+    assert.ok(!api.loginErrorMessage({ code, message: 'private SDK details' }).includes('private SDK'))
+  }
+})
+
+test('registration diagnostics retain only original error fields and identify each stage', async t => {
+  const logs = []
+  t.mock.method(console, 'error', (...args) => logs.push(args))
+  const original = Object.assign(new Error('Diagnostic test failure'), {
+    code: 'permission-denied', name: 'FirebaseError', credential: 'must-not-log',
+  })
+  for (const failure of ['read', 'batch']) {
+    logs.length = 0
+    let failRead = false
+    const { api, restore } = await service({
+      dev: true,
+      readProfile: async () => { if (failRead) throw original; return null },
+      createStudentProfile: async () => { throw original },
+    })
+    await restore(googleUser)
+    failRead = failure === 'read'
+    await assert.rejects(api.registerStudent(form), /Registration could not be completed/)
+    assert.deepEqual(logs[0], ['[Registration]', {
+      stage: failure === 'read' ? 'PROFILE_READ_FAILED' : 'REGISTRATION_BATCH_FAILED',
+      code: original.code, message: original.message, name: original.name,
+    }])
+    if (failure === 'read') assert.equal(logs[1][1].stage, 'PROFILE_REFRESH_FAILED')
+    assert.ok(!JSON.stringify(logs).includes('must-not-log'))
+  }
+})
+
+test('registration diagnostic logging is disabled outside development', async t => {
+  const logs = []
+  t.mock.method(console, 'error', (...args) => logs.push(args))
+  const { api, restore } = await service({
+    dev: false,
+    createStudentProfile: async () => { throw new Error('failure') },
+  })
+  await restore(googleUser)
+  await assert.rejects(api.registerStudent(form), /Registration could not be completed/)
+  assert.deepEqual(logs, [])
 })

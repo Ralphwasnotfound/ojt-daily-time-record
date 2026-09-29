@@ -1,46 +1,12 @@
 <script>
 import ExpandableList from '../../components/ExpandableList.vue'
-import { CalendarDays, Camera, Image, Clock3 } from 'lucide-vue-next'
-
+import AttendanceFeedback from '../../components/AttendanceFeedback.vue'
+import studentAttendanceMixin from '../../services/studentAttendanceMixin.js'
+import { CalendarDays, Clock3 } from 'lucide-vue-next'
 export default {
   name: 'AttendanceView',
-  components: { ExpandableList, CalendarDays, Camera, Image, Clock3 },
-  data() {
-    return {
-      currentDate: new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }),
-      actionNotice: '',
-      // Static examples only. No elapsed hours or attendance records are calculated.
-      todayAttendance: {
-        status: 'IN', timeIn: '8:02 AM', timeOut: '--', renderedHours: '5h 14m',
-        proofs: [
-          { label: 'Time In Proof', captured: '8:02 AM', date: 'September 28, 2026' },
-          { label: 'Time Out Proof', captured: null, date: null },
-        ],
-      },
-      attendanceSummary: [
-        { label: 'Days Present', value: '18' },
-        { label: 'Completed Hours', value: '126h 15m' },
-        { label: 'Required Hours', value: '486h' },
-      ],
-      attendanceHistory: [
-        { id: 1, date: 'September 25, 2026', day: 'Friday', timeIn: '8:01 AM', timeOut: '5:03 PM', hours: '9h 02m', status: 'Complete' },
-        { id: 2, date: 'September 24, 2026', day: 'Thursday', timeIn: '8:05 AM', timeOut: '5:00 PM', hours: '8h 55m', status: 'Complete' },
-        { id: 3, date: 'September 23, 2026', day: 'Wednesday', timeIn: '8:00 AM', timeOut: '--', hours: '--', status: 'Incomplete' },
-        { id: 4, date: 'September 22, 2026', day: 'Tuesday', timeIn: '7:58 AM', timeOut: '5:02 PM', hours: '9h 04m', status: 'Complete' },
-        { id: 5, date: 'September 21, 2026', day: 'Monday', timeIn: '8:03 AM', timeOut: '5:01 PM', hours: '8h 58m', status: 'Complete' },
-        { id: 6, date: 'September 18, 2026', day: 'Friday', timeIn: '8:02 AM', timeOut: '5:00 PM', hours: '8h 58m', status: 'Complete' },
-        { id: 7, date: 'September 17, 2026', day: 'Thursday', timeIn: '8:00 AM', timeOut: '5:00 PM', hours: '9h 00m', status: 'Complete' },
-      ],
-    }
-  },
-  methods: {
-    previewAction() {
-      this.actionNotice = 'Attendance is not connected yet. No photo was captured and no attendance record was changed.'
-    },
-    badgeClass(status) {
-      return status === 'Complete' ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'
-    },
-  },
+  mixins: [studentAttendanceMixin],
+  components: { ExpandableList, AttendanceFeedback, CalendarDays, Clock3 },
 }
 </script>
 
@@ -51,31 +17,24 @@ export default {
       <p class="mt-2 text-sm leading-6 text-stone-600">Track your daily OJT attendance and rendered hours.</p>
       <p class="mt-3 flex items-center gap-2 text-sm text-stone-500"><CalendarDays :size="16" class="shrink-0" aria-hidden="true" />{{ currentDate }}</p>
     </header>
-    <p class="border-l-2 border-brand-gold pl-3 text-xs leading-5 text-stone-500">Static preview data dated September 28, 2026. Attendance and hours are not live.</p>
+    <p class="border-l-2 border-brand-gold pl-3 text-xs leading-5 text-stone-500">Attendance is recorded using server time. Dates and times are shown in Asia/Manila.</p>
 
+    <AttendanceFeedback :state="attendanceUi" @refresh="refreshAttendance" />
     <section aria-labelledby="today-heading" class="rounded-xl border border-stone-200 bg-white p-5 sm:p-6">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h2 id="today-heading" class="text-lg font-semibold text-stone-900">Today's Attendance</h2>
-        <span class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold" :class="todayAttendance.status === 'IN' ? 'bg-emerald-50 text-emerald-800' : 'bg-stone-100 text-stone-600'"><span class="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true"></span>CURRENTLY {{ todayAttendance.status }}</span>
+        <span class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold" :class="attendanceDisplay.status === 'IN' ? 'bg-emerald-50 text-emerald-800' : 'bg-stone-100 text-stone-600'"><span class="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true"></span>CURRENTLY {{ attendanceDisplay.status }}</span>
       </div>
-      <div class="mt-5 grid gap-6 xl:grid-cols-2">
+      <p v-if="attendanceDisplay.carriedOver" class="mt-3 text-sm text-amber-800">Open session started {{ attendanceDisplay.sessionDate }} (Asia/Manila). It has not been automatically closed.</p><div class="mt-5">
         <div>
           <dl class="grid gap-4 sm:grid-cols-3">
-            <div class="rounded-lg bg-stone-50 p-4"><dt class="text-xs text-stone-500">Time In</dt><dd class="mt-2 text-lg font-semibold text-stone-900">{{ todayAttendance.timeIn }}</dd></div>
-            <div class="rounded-lg bg-stone-50 p-4"><dt class="text-xs text-stone-500">Time Out</dt><dd class="mt-2 text-lg font-semibold text-stone-900">{{ todayAttendance.timeOut }}</dd></div>
-            <div class="rounded-lg bg-stone-50 p-4"><dt class="text-xs text-stone-500">Rendered Hours</dt><dd class="mt-2 text-lg font-semibold text-stone-900">{{ todayAttendance.renderedHours }}</dd></div>
+            <div class="rounded-lg bg-stone-50 p-4"><dt class="text-xs text-stone-500">Time In</dt><dd class="mt-2 text-lg font-semibold text-stone-900">{{ attendanceDisplay.timeIn }}</dd></div>
+            <div class="rounded-lg bg-stone-50 p-4"><dt class="text-xs text-stone-500">Time Out</dt><dd class="mt-2 text-lg font-semibold text-stone-900">{{ attendanceDisplay.timeOut }}</dd></div>
+            <div class="rounded-lg bg-stone-50 p-4"><dt class="text-xs text-stone-500">Today's Completed Hours</dt><dd class="mt-2 text-lg font-semibold text-stone-900">{{ attendanceDisplay.todayHours }}</dd></div>
           </dl>
-          <button type="button" aria-describedby="photo-note" class="mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-brand px-4 py-3 text-sm font-semibold text-white hover:bg-brand-dark" @click="previewAction"><Camera :size="18" aria-hidden="true" />{{ todayAttendance.status === 'IN' ? 'Time Out' : 'Time In' }}</button>
-          <p id="photo-note" class="mt-3 text-xs leading-5 text-stone-500">UI preview only. Photo verification will be required when attendance is connected.</p>
-          <p role="status" aria-live="polite" :class="actionNotice ? 'mt-3 rounded-lg border border-brand-gold/50 bg-brand-gold/10 p-3 text-sm leading-6 text-stone-700' : 'sr-only'">{{ actionNotice }}</p>
-        </div>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <section v-for="proof in todayAttendance.proofs" :key="proof.label" :aria-label="proof.label" class="rounded-lg border border-stone-200 p-3">
-            <h3 class="text-sm font-medium text-stone-700">{{ proof.label }}</h3>
-            <div class="mt-3 flex h-24 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 text-stone-400"><Image :size="24" aria-hidden="true" /><span class="text-xs">{{ proof.captured ? 'Photo placeholder' : 'No Time Out proof yet' }}</span></div>
-            <p v-if="proof.captured" class="mt-3 text-xs leading-5 text-stone-500">Captured: {{ proof.captured }}<br />{{ proof.date }}</p>
-            <p v-else class="mt-3 text-xs leading-5 text-stone-500">A captured photo will appear here.</p>
-          </section>
+          <button type="button" :disabled="attendanceActionDisabled" :aria-busy="attendanceUi.busy" class="mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-brand px-4 py-3 text-sm font-semibold text-white hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50" @click="submitAttendance"><Clock3 :size="18" aria-hidden="true" />{{ attendanceUi.busy ? 'Recording...' : attendanceDisplay.completedToday ? 'Completed for today' : attendanceUi.ready ? attendanceDisplay.action : 'Attendance unavailable' }}</button>
+          <p class="mt-3 text-xs leading-5 text-stone-500">One session may start per Manila day. Open sessions do not count toward completed hours.</p>
+          <p class="mt-2 text-xs leading-5 text-stone-500">Photo proof is unavailable until Phase 3B. No photo is captured.</p>
         </div>
       </div>
     </section>
@@ -86,10 +45,10 @@ export default {
 
     <section aria-labelledby="history-heading" class="rounded-xl border border-stone-200 bg-white p-5 sm:p-6">
       <h2 id="history-heading" class="text-lg font-semibold text-stone-900">Attendance History</h2>
-      <p class="mt-1 text-sm leading-6 text-stone-500">Your seven most recent OJT days in this preview.</p>
-      <ExpandableList :items="attendanceHistory" v-slot="{ visibleItems }">
+      <p class="mt-1 text-sm leading-6 text-stone-500">Your recorded attendance, newest first. Overnight sessions are grouped by their start date.</p>
+      <p v-if="attendanceUi.ready && !attendanceHistory.length" role="status" class="mt-4 text-sm text-stone-500">No attendance recorded yet.</p><ExpandableList v-if="attendanceUi.ready && attendanceHistory.length" :items="attendanceHistory" v-slot="{ visibleItems }">
 <table class="mt-5 hidden w-full text-left text-sm xl:table">
-        <caption class="sr-only">Recent mock attendance records</caption>
+        <caption class="sr-only">Recorded attendance</caption>
         <thead class="border-y border-stone-200 bg-stone-50 text-xs text-stone-500"><tr><th scope="col" class="px-3 py-3 font-medium">Date</th><th scope="col" class="px-3 py-3 font-medium">Day</th><th scope="col" class="px-3 py-3 font-medium">Time In</th><th scope="col" class="px-3 py-3 font-medium">Time Out</th><th scope="col" class="px-3 py-3 font-medium">Hours</th><th scope="col" class="px-3 py-3 font-medium">Status</th></tr></thead>
         <tbody class="divide-y divide-stone-100"><tr v-for="record in visibleItems" :key="record.id"><th scope="row" class="px-3 py-4 font-medium text-stone-800">{{ record.date }}</th><td class="px-3 py-4 text-stone-500">{{ record.day }}</td><td class="px-3 py-4">{{ record.timeIn }}</td><td class="px-3 py-4">{{ record.timeOut }}</td><td class="px-3 py-4">{{ record.hours }}</td><td class="px-3 py-4"><span class="rounded-full px-2.5 py-1 text-xs font-medium" :class="badgeClass(record.status)">{{ record.status }}</span></td></tr></tbody>
       </table>

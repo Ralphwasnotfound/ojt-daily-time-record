@@ -6,20 +6,33 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --experimental-vm-modules --test tests/auth.test.js tests/supabaseAuth.test.js tests/supabaseAttendanceUi.test.js tests/attendanceTime.test.js tests/attendance.test.js tests/studentAttendance.test.js tests/studentAttendanceView.test.js tests/activities.test.js",
+    "test:supabase:accounts": "node --experimental-vm-modules --test tests/supabaseAccounts.local.test.js",
+    "test:supabase:attendance": "node --test tests/supabaseAttendance.local.test.js",
+    "test:supabase:activities": "node --test tests/supabaseActivities.local.test.js",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-ojt-attendance \"node --experimental-vm-modules --test tests/attendance.rules.test.js tests/activities.rules.test.js\"",
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
+    "supabase:reset": "supabase db reset --local --no-seed",
+    "test:supabase": "supabase test db --local",
+    "supabase:lint": "supabase db lint --local"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.2",
     "firebase": "^12.19.0",
     "lucide-vue-next": "^1.0.0",
     "vue": "^3.5.43",
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-vue": "^6.0.9",
+    "supabase": "2.118.0",
     "tailwindcss": "^4.3.3",
     "vite": "^8.3.1"
   }

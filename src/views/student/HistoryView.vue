@@ -1,82 +1,19 @@
 <script>
+import studentAttendanceMixin from '../../services/studentAttendanceMixin.js'
+import AttendanceFeedback from '../../components/AttendanceFeedback.vue'
 import ExpandableList from '../../components/ExpandableList.vue'
 import { Image, Clock3 } from 'lucide-vue-next'
 
 export default {
   name: 'HistoryView',
-  components: { ExpandableList, Image, Clock3 },
+  mixins: [studentAttendanceMixin],
+  components: { AttendanceFeedback, ExpandableList, Image, Clock3 },
   data() {
     return {
       activeTab: 'attendance',
       selectedDate: '',
       selectedCategory: '',
       tabs: [{ id: 'attendance', label: 'Attendance' }, { id: 'activity', label: 'Activity Updates' }],
-      summary: [{ label: 'Total OJT Hours', value: '126h 15m' }, { label: 'Days Present', value: '18' }, { label: 'Activity Updates', value: '42' }],
-      attendanceHistory: [
-  {
-    "id": 1,
-    "date": "September 25, 2026",
-    "day": "Friday",
-    "timeIn": "8:01 AM",
-    "timeOut": "5:03 PM",
-    "hours": "9h 02m",
-    "status": "Complete"
-  },
-  {
-    "id": 2,
-    "date": "September 24, 2026",
-    "day": "Thursday",
-    "timeIn": "8:05 AM",
-    "timeOut": "5:00 PM",
-    "hours": "8h 55m",
-    "status": "Complete"
-  },
-  {
-    "id": 3,
-    "date": "September 23, 2026",
-    "day": "Wednesday",
-    "timeIn": "8:00 AM",
-    "timeOut": "--",
-    "hours": "--",
-    "status": "Incomplete"
-  },
-  {
-    "id": 4,
-    "date": "September 22, 2026",
-    "day": "Tuesday",
-    "timeIn": "7:58 AM",
-    "timeOut": "5:02 PM",
-    "hours": "9h 04m",
-    "status": "Complete"
-  },
-  {
-    "id": 5,
-    "date": "September 21, 2026",
-    "day": "Monday",
-    "timeIn": "8:03 AM",
-    "timeOut": "5:01 PM",
-    "hours": "8h 58m",
-    "status": "Complete"
-  },
-  {
-    "id": 6,
-    "date": "September 18, 2026",
-    "day": "Friday",
-    "timeIn": "8:02 AM",
-    "timeOut": "5:00 PM",
-    "hours": "8h 58m",
-    "status": "Complete"
-  },
-  {
-    "id": 7,
-    "date": "September 17, 2026",
-    "day": "Thursday",
-    "timeIn": "8:00 AM",
-    "timeOut": "5:00 PM",
-    "hours": "9h 00m",
-    "status": "Complete"
-  }
-],
       activityHistory: [
         { id: 1, date: 'September 28, 2026', time: '10:34 AM', category: 'Programming / Development', description: 'Worked on the responsive layout of the company website.', hasPhoto: true },
         { id: 2, date: 'September 28, 2026', time: '9:15 AM', category: 'IT Support', description: 'Helped the office team troubleshoot a printer connection.', hasPhoto: true },
@@ -88,6 +25,7 @@ export default {
     }
   },
   computed: {
+    summary() { return [...this.attendanceSummary.slice(0, 2).reverse(), { label: 'Activity Updates (sample)', value: '42' }] },
     dateOptions() {
       const records = this.activeTab === 'attendance' ? this.attendanceHistory : this.activityHistory
       return [...new Set(records.map(record => record.date))]
@@ -133,8 +71,8 @@ export default {
       <h1 class="text-2xl font-semibold tracking-tight text-stone-900 sm:text-3xl">History</h1>
       <p class="mt-2 text-sm leading-6 text-stone-600">Review your attendance and activity records.</p>
     </header>
-    <p class="border-l-2 border-brand-gold pl-3 text-xs leading-5 text-stone-500">Sample records only. Summary totals are mock values and do not change with filters.</p>
-    <dl class="grid gap-3 sm:grid-cols-3">
+    <p class="border-l-2 border-brand-gold pl-3 text-xs leading-5 text-stone-500">Attendance and completed-hour totals are real. Activity Updates remain sample records; attendance totals are not limited by the selected filter.</p>
+    <AttendanceFeedback :state="attendanceUi" @refresh="refreshAttendance" /><dl class="grid gap-3 sm:grid-cols-3">
       <div v-for="item in summary" :key="item.label" class="rounded-lg border border-stone-200 bg-white px-4 py-3"><dt class="text-xs text-stone-500">{{ item.label }}</dt><dd class="mt-1 text-lg font-semibold text-stone-800">{{ item.value }}</dd></div>
     </dl>
     <section aria-label="History records" class="min-w-0 rounded-xl border border-stone-200 bg-white p-4 sm:p-6">
@@ -153,9 +91,9 @@ export default {
       </div>
       <div v-show="activeTab === 'attendance'" id="panel-attendance" role="tabpanel" aria-labelledby="tab-attendance" tabindex="0">
         <h2 class="sr-only">Attendance records</h2>
-      <ExpandableList :items="filteredAttendance" v-slot="{ visibleItems }">
+      <p v-if="attendanceUi.ready && !filteredAttendance.length" role="status" class="mt-4 text-sm text-stone-500">No attendance matches this date.</p><ExpandableList v-if="attendanceUi.ready && filteredAttendance.length" :items="filteredAttendance" v-slot="{ visibleItems }">
 <table class="mt-5 hidden w-full text-left text-sm xl:table">
-        <caption class="sr-only">Recent mock attendance records</caption>
+        <caption class="sr-only">Recorded attendance in Asia/Manila</caption>
         <thead class="border-y border-stone-200 bg-stone-50 text-xs text-stone-500"><tr><th scope="col" class="px-3 py-3 font-medium">Date</th><th scope="col" class="px-3 py-3 font-medium">Day</th><th scope="col" class="px-3 py-3 font-medium">Time In</th><th scope="col" class="px-3 py-3 font-medium">Time Out</th><th scope="col" class="px-3 py-3 font-medium">Hours</th><th scope="col" class="px-3 py-3 font-medium">Status</th></tr></thead>
         <tbody class="divide-y divide-stone-100"><tr v-for="record in visibleItems" :key="record.id"><th scope="row" class="px-3 py-4 font-medium text-stone-800">{{ record.date }}</th><td class="px-3 py-4 text-stone-500">{{ record.day }}</td><td class="px-3 py-4">{{ record.timeIn }}</td><td class="px-3 py-4">{{ record.timeOut }}</td><td class="px-3 py-4">{{ record.hours }}</td><td class="px-3 py-4"><span class="rounded-full px-2.5 py-1 text-xs font-medium" :class="badgeClass(record.status)">{{ record.status }}</span></td></tr></tbody>
       </table>
@@ -169,7 +107,7 @@ export default {
 
       </div>
       <div v-show="activeTab === 'activity'" id="panel-activity" role="tabpanel" aria-labelledby="tab-activity" tabindex="0">
-        <h2 class="sr-only">Activity update records</h2>
+        <h2 class="sr-only">Activity update records</h2><p class="mb-4 text-xs text-stone-500">Sample activity data only. These entries are not real submissions.</p>
         <p v-if="!filteredActivities.length" role="status" class="rounded-lg bg-stone-50 p-6 text-center text-sm text-stone-500">No sample activities match these filters.</p>
         <ExpandableList v-else :items="filteredActivities" v-slot="{ visibleItems }">
 <ul class="space-y-4">

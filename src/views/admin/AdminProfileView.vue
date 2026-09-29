@@ -20,7 +20,7 @@ export default {
     }
   },
   created() {
-    // Identity comes from Firestore. Remaining workplace/progress fields are preview data.
+    // Identity comes from Supabase profiles. Remaining workplace/progress fields are preview data.
     const account = authState.profile
     for (const field of ['fullName', 'studentId', 'email', 'role', 'status', 'program', 'yearLevel', 'requiredHours', 'department']) {
       if (account && account[field] !== undefined) this.profile[field] = account[field]
@@ -28,16 +28,10 @@ export default {
   },
   methods: {
     editProfile() {
-      this.draft = { ...this.profile }
-      this.editing = true
-      this.notice = ''
-      this.$nextTick(() => this.$refs.form.querySelector('input:not([readonly])').focus())
+      this.notice = 'Profile editing is not available yet. Contact the BSIT administrator for account corrections.'
     },
     saveChanges() {
-      if (!this.editing) return
-      this.profile.fullName = this.draft.fullName
-      this.profile.email = this.draft.email
-      this.finishEditing('Changes applied to this local preview only. They are not saved to an account and reset when you leave this page.')
+      this.editProfile()
     },
     cancelChanges() {
       this.finishEditing('Unsaved changes discarded.')
@@ -54,7 +48,7 @@ export default {
 <template>
   <div class="space-y-6">
     <header><h1 class="text-2xl font-semibold text-stone-900 sm:text-3xl">Profile</h1><p class="mt-2 text-sm leading-6 text-stone-600">Manage your administrator profile and account information.</p></header>
-    <p class="border-l-2 border-brand-gold pl-3 text-xs leading-5 text-stone-500">Identity and account status are loaded from Firestore. Other OJT fields and edits remain local previews; Save does not update Firestore.</p>
+    <p class="border-l-2 border-brand-gold pl-3 text-xs leading-5 text-stone-500">Identity and account status are loaded from Supabase. Profile editing is unavailable until a trusted update service is added. Other OJT fields remain preview data.</p>
     <section aria-label="Profile summary" class="flex flex-wrap items-center gap-4 rounded-xl border border-stone-200 bg-white p-5 sm:p-6">
       <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-stone-100 text-brand"><UserRound :size="32" aria-hidden="true" /></div>
       <div class="min-w-0 flex-1"><h2 class="break-words text-xl font-semibold">{{ profile.fullName }}</h2><p class="mt-1 text-sm text-stone-500">{{ profile.role }}</p><span class="mt-2 inline-block rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">{{ profile.status }}</span></div>

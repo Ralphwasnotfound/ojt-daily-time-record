@@ -1,65 +1,79 @@
-# OJT Monitoring & DTR — Firebase Phase 2
+# OJT Monitoring & DTR — Google sign-in
 
-Vue 3 Options API, JavaScript, Vite, Tailwind and Firebase modular SDK. No new dependencies were added for Phase 2.
+Vue 3 Options API, JavaScript, Vite, Tailwind and the existing Firebase modular SDK. No new dependencies.
 
-## Run and check
+## Run and validate
 
-Keep the six Firebase Web App variables in ignored `.env.local`. Never commit their values.
+Keep Firebase Web App configuration in ignored `.env.local`; never commit it.
 
 ```sh
-npm install
 npm run dev
 npm run build
 node --experimental-vm-modules --test tests/auth.test.js
 ```
 
-## Account architecture
+## Student and administrator flow
 
-`src/firebase/firebase.js` exports Auth and Firestore from one shared app.
-`src/services/auth.js` restores Auth, loads the server profile, and exposes reactive loading/error/account state.
-`src/services/accountPolicy.js` centralizes redirects and signup validation.
-`src/services/users.js` reads profiles, creates registration batches and reviews pending students.
+Both roles use Continue with Google. The Firebase SDK opens Google's account chooser and manages local session persistence. The application never receives a Google password. No email/password form or public administrator signup remains.
 
-Profiles live at `users/{authUid}`. Normalized uppercase Student IDs are reserved at `studentIds/{studentId}`.
-Signup explicitly writes student/pending; it never accepts role or status from the form. Profile and reservation are committed in one Firestore batch. Reciprocal getAfter rules require both documents and prevent overwriting an existing reservation, including concurrent claims. This ensures unique normalized IDs, not ownership of a real-world ID; administrators must verify identity.
+After Auth restoration/sign-in, read `users/{auth.uid}` from Firestore before deciding access:
 
-Auth creation and Firestore are separate operations. If profile creation fails, the app reads back the profile. A confirmed missing profile triggers deleteUser for the newly created current user. An uncertain read leaves the account blocked and asks for administrator assistance rather than risking deletion of a successfully registered user. Failed cleanup also requires administrator assistance. Never store passwords in Firestore.
+- Google identity with no profile: authenticated `/signup` (Complete Registration).
+- Student/pending: `/pending`.
+- Student/approved: `/student`.
+- Admin/approved: `/admin`.
+- Rejected, invalid, mismatched or unreadable profile: blocked at `/pending` with a relevant message.
+- Anonymous protected navigation: `/`.
 
-## Routing and UI
+Full Name is prefilled from Google and editable. Google email is read-only and persisted from Firebase Auth, never from form input. Student ID is normalized to uppercase; Program is fixed to BS Information Technology. No year level is inferred or collected. Google Workspace identities are supported as well as Gmail; email suffixes never grant roles.
 
-Existing routes remain; `/signup` and authenticated `/pending` are added. Guards await Auth and server profile loading. Approved students go to `/student`; approved administrators go to `/admin`. Wrong-workspace navigation redirects to the user's own workspace. Pending, rejected, missing, invalid or unreadable profiles are denied workspace access and sent to `/pending`, with a relevant message. Anonymous protected-route requests return to `/`.
+The `users/{uid}` pending student profile and `studentIds/{normalizedId}` reservation are one atomic batch. Rules require the signed-in Google provider, verified email, matching UID/email, exact permitted fields and reciprocal batch documents. Role/student and status/pending are set explicitly. Existing profiles and ID reservations cannot be overwritten. ID uniqueness does not prove real-world ownership; administrators verify student details.
 
-Pending users can check their status, refresh, or log in again after a decision. Status is refreshed on navigation, not through a realtime subscription. Database authorization is enforced by rules independently of route guards.
+Registration failures retain the Google identity and permit a safe retry. They never delete the Google Auth user. An existing profile is re-read rather than overwritten, including an administrator provisioned while registration is open. A missing profile after a read failure is not treated as first-time registration.
 
-Admin Students now includes real Pending Registrations with View, Approve and Reject. Approval transaction sets status, approvedAt and approvedBy; rejection sets rejected without deleting Auth accounts. Only pending students can be reviewed. Existing directory data is separately labeled demonstration data. Profile identity comes from Firestore; remaining fields and Save actions remain local previews. Existing LogoutDialog and Firebase signOut remain in use.
+Approved administrators review real Pending Registrations in Students. Approval changes status, approvedAt and approvedBy; rejection changes status only. Existing demonstration directory and other OJT data remain mock. Self-editing Firestore profiles, role escalation, reservation overwrite/deletion and all unrelated collections remain denied by rules. The existing confirmation dialog/signOut behavior is preserved, including on Complete Registration.
 
-## Publish rules and bootstrap an administrator
+## Required Firebase Console configuration
 
-1. In the existing Firebase project, open Firestore Database → Rules. Review and publish the exact contents of `firestore.rules`. Do not use test/open rules. Alternatively, with an authenticated Firebase CLI, deploy using `firebase deploy --only firestore:rules --project ojt-bsit-tcc-monitoring` from this directory. `firebase.json` points to the rules file. Local files do not automatically change deployed rules.
-2. Keep Email/Password Authentication enabled. The default Firestore database is already confirmed to exist.
-3. In Authentication → Users, manually add the initial administrator using your chosen email/password. Copy its UID.
-4. In Firestore create `users/{that exact UID}` with: uid (same UID), fullName (administrator's name), email (same Auth email), role `admin`, status `approved`, department `BSIT Department`, and createdAt (Timestamp set to the current time in the Console). Do not add a password. The Console is trusted administration and bypasses client rules. There is no public admin signup.
-5. Log in with that account and confirm `/admin`. Existing Phase 1 accounts without profiles remain blocked; explicitly provision legitimate profiles rather than deriving roles from email.
+1. Authentication → Sign-in method: enable Google, select a project support email and save.
+2. Authentication → Settings → Authorized domains: ensure localhost for development and your deployed host are authorized. Do not assume localhost was added automatically.
+3. Publish the exact updated `firestore.rules` under Firestore → Rules. Alternatively use an authenticated Firebase CLI: `firebase deploy --only firestore:rules --project ojt-bsit-tcc-monitoring`. Local changes do not publish themselves. Old rules still requiring yearLevel will reject the new registration schema.
+4. Keep the existing default Firestore database. No new database or indexes are intentionally introduced.
 
-Rules permit own-profile reads and approved-admin reads of student profiles. Public creates require the exact permitted student fields, authenticated UID/email, pending status and atomic ID reservation. Student updates and deletes are entirely denied in Phase 2. Admin updates allow only pending-to-approved/rejected transitions and corresponding approval metadata. All other collections are denied. Future student-editable contact/workplace fields need a validated allowlist; identity, role, status, IDs and approval metadata must remain protected. Rejected IDs remain reserved; only trusted maintenance should release them after checking both documents.
+Official Google setup: https://firebase.google.com/docs/auth/web/google-signin
 
-## Manual end-to-end test sequence
+## Pre-authorize an administrator
 
-Use separate browser sessions for student and administrator. No live accounts are created by automated tests.
+Use trusted Console administration, never an email allowlist in frontend code. The approved `users/{UID}` document is the authorization record.
 
-1. Visit `/signup`; check required fields, malformed ID/email, short/mismatched passwords and password visibility on desktop and a small phone width.
-2. Register a test student. Confirm its Auth user, `users/{uid}` and canonical `studentIds/{id}` exist. Verify role student, status pending, requiredHours 486, timestamps and null approval fields. Verify no password exists in either document.
-3. Confirm `/pending`; directly visit `/student/history` and `/admin/students` and confirm denial. Refresh and confirm the pending state survives. Test LogoutDialog cancel, Escape and confirmation; confirmed logout returns to `/`, and protected routes remain blocked.
-4. With another email, attempt the same ID (including lowercase/outer-space variants). Confirm registration fails and no second reservation/profile exists. Confirm newly created Auth account cleanup, or the explicit administrator-help state if cleanup/readback cannot complete.
-5. Bootstrap/login as administrator. Confirm `/admin` and redirection away from `/student`. Open Students → Pending Registrations, View the real record, and confirm Approve. Verify approvedAt is a Timestamp and approvedBy is the administrator UID.
-6. Student checks status or refreshes/logs in again. Confirm `/student`, blocked `/admin`, authenticated-root redirect and refresh persistence.
-7. Register a second student and reject it. Confirm rejected Firestore status, retained Auth account and reservation, and Registration Not Approved with both workspaces denied.
-8. Test a legitimate Auth user without a profile and a denied/offline profile read: no workspace access or raw SDK errors. Restore connectivity and retry.
-9. In the Firestore Rules Playground or a configured emulator, verify: anonymous reads/writes denied; own read allowed; other-student read denied; public admin/approved creation denied; standalone profile/reservation writes denied; duplicate ID batch denied; student self-approval/role change/other-user writes denied; pending/rejected administrator updates denied; approved administrator approval/rejection allowed; extra identity edits during approval denied; reservation update/delete denied. Test the valid atomic signup batch and concurrent duplicate claims with the emulator or separate test sessions as Playground cannot fully exercise multi-write races.
-10. Check desktop/mobile pending and admin review interfaces, loading, retry, confirmation, empty results, and failed approval without a success notice.
+For an existing Firebase Auth Google identity, obtain its exact UID. For a new administrator, have the intended person Continue with Google once to establish their Firebase Auth identity, then stop at Complete Registration without submitting student details. A trusted project administrator can now copy that UID from Authentication and pre-authorize the next sign-in by manually creating `users/{UID}` with:
 
-## Verification and remaining scope
+- uid: the same UID
+- fullName: administrator's name
+- email: exact Google identity email
+- role: admin
+- status: approved
+- department: BSIT Department
+- createdAt: Timestamp set to the current time in Console
 
-Nine isolated tests cover policy, validation, SDK delegation, partial failures and stale profile responses. They use SDK substitutes: they do not compile/emulate Security Rules or prove live authorization. Production build passes. Live signup, rule enforcement, approval/rejection, account persistence and logout need the above Firebase Console/test-account checks. Rules have not been deployed by this task.
+The person signs out and continues with Google again; Firestore verification sends them to Admin Dashboard. No admin privileges exist before this trusted provisioning. Never store a password in Firestore. To pre-provision before any interactive sign-in, use a separately administered trusted Firebase identity provisioning process; no Admin SDK or service-account key is included here.
 
-Attendance, activities, uploads, hour calculations, full profile persistence, email verification, password reset, notifications, widgets and trusted deletion workflows remain deferred. No Admin SDK credentials belong in the frontend. Existing mock OJT data is intentionally retained.
+Existing password accounts are not deleted, migrated or automatically linked by this code. If Google resolves to a different UID or reports an existing-credential conflict, a trusted administrator must resolve that identity migration without copying privileges based only on email. Disabling the Email/Password provider is a separate Console migration decision; removing the UI alone does not disable that provider.
+
+## Manual tests
+
+1. Enable/configure Google and publish rules. On desktop and a phone browser, Continue with Google. Check cancellation, popup blocking, network failure and retry; no raw SDK errors should display.
+2. New Google user reaches Complete Registration with prefilled name and read-only Google email. Refresh; it must remain there. Anonymous `/signup` returns to login.
+3. Submit valid student details. Verify users UID/profile and canonical ID reservation, student/pending, requiredHours 486, createdAt, null approval metadata and no passwords. Verify `/pending` blocks both workspaces.
+4. Try a duplicate canonical Student ID with another Google identity. It must fail without replacing either document or deleting the Google identity. Correct the ID and retry.
+5. Provision the approved admin as above. Verify direct Admin Dashboard redirect and denial of Student workspace. Confirm approved admin never sees/overwrites itself through student registration.
+6. Admin approves the pending student; check approval metadata. Student refreshes/checks status/logs in and reaches `/student`; `/admin` stays denied.
+7. Reject another registration; both workspaces stay denied and the ID reservation remains. Test missing/invalid profiles and failed server reads.
+8. Test persistence across refresh, logout Cancel/Escape/confirm, and denial after signOut. Verify existing desktop/mobile layout remains usable.
+9. Use Rules Playground or an emulator to test own read, other-student read denial, non-Google/unverified creation denial, forged role/status/email denial, missing reciprocal batch denial, duplicate concurrent reservation denial, self-approval denial and approved-admin-only review updates. Atomic multi-write races require the emulator or separate test sessions.
+
+## Validation limits / deferred work
+
+10 focused isolated tests pass, covering SDK delegation, profile initialization, routing, registration validation, preservation/retry and friendly failures. Production build passes with the existing large-chunk warning. Tests substitute the SDK: they do not perform Google OAuth or compile/emulate rules. Live Google login, Firebase Console settings, rules deployment and live approval still require the manual checks above. OAuth popups must be allowed; embedded browsers may restrict Google login, so test in supported normal browsers.
+
+No attendance writes, activity writes, uploads, real hour calculations, password reset, email-based role rules, Functions, or widgets were added. Role/status refreshes on navigation or explicit refresh rather than a realtime subscription. Database rules independently enforce authorization.

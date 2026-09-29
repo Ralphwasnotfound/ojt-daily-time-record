@@ -1,41 +1,45 @@
-import { collection, doc, getDocFromServer, getDocsFromServer, query, where, writeBatch, runTransaction, serverTimestamp } from 'firebase/firestore'
-import { db } from '../firebase/firebase'
+import { supabase } from '../supabase/supabase'
 import { normalizeStudentId } from './accountPolicy'
 
-export async function readProfile(uid) {
-  const snapshot = await getDocFromServer(doc(db, 'users', uid))
-  return snapshot.exists() ? snapshot.data() : null
+// Existing views use camelCase. uid is a Supabase UUID, never a Firebase UID.
+export function profileFromRow(row) {
+  if (!row) return null
+  return {
+    uid: row.id, fullName: row.full_name, studentId: row.student_id,
+    email: row.email, program: row.program, role: row.role, status: row.status,
+    requiredHours: row.required_hours, department: row.department,
+    createdAt: row.created_at, approvedAt: row.approved_at, approvedBy: row.approved_by,
+  }
 }
-
-export async function createStudentProfile(user, form) {
-  const studentId = normalizeStudentId(form.studentId)
-  const batch = writeBatch(db)
-  // Reciprocal getAfter() rules require both creations together; existing IDs cannot be overwritten.
-  batch.set(doc(db, 'studentIds', studentId), { uid: user.uid, createdAt: serverTimestamp() })
-  batch.set(doc(db, 'users', user.uid), {
-    uid: user.uid, fullName: form.fullName.trim(), studentId,
-    email: user.email, role: 'student', status: 'pending',
-    program: 'BS Information Technology', yearLevel: form.yearLevel,
-    requiredHours: 486, createdAt: serverTimestamp(), approvedAt: null, approvedBy: null,
+export async function readProfile(id) {
+  const { data, error } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle()
+  if (error) throw error
+  return profileFromRow(data)
+}
+export async function createStudentProfile(form) {
+  // S1 derives UID/email/role/status/program/hours from trusted database state.
+  const { data, error } = await supabase.rpc('complete_student_registration', {
+    full_name: form.fullName.trim(), student_id: normalizeStudentId(form.studentId),
   })
-  await batch.commit()
+  if (error) throw error
+  return profileFromRow(data)
 }
-
 export async function listPendingStudents() {
-  const result = await getDocsFromServer(query(collection(db, 'users'), where('role', '==', 'student'), where('status', '==', 'pending')))
-  return result.docs.map(snapshot => snapshot.data())
+  // Page through the server cap without silently dropping pending registrations.
+  const rows = []
+  const pageSize = 100
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase.from('profiles').select('*')
+      .eq('role', 'student').eq('status', 'pending')
+      .order('created_at').order('id').range(offset, offset + pageSize - 1)
+    if (error) throw error
+    rows.push(...data.map(profileFromRow))
+    if (data.length < pageSize) return rows
+  }
 }
-
-export async function reviewStudent(uid, status, adminUid) {
+export async function reviewStudent(uid, status) {
   if (!['approved', 'rejected'].includes(status)) throw new Error('Invalid review decision.')
-  await runTransaction(db, async transaction => {
-    const ref = doc(db, 'users', uid)
-    const snapshot = await transaction.get(ref)
-    if (!snapshot.exists() || snapshot.data().role !== 'student' || snapshot.data().status !== 'pending') {
-      throw new Error('Registration is no longer pending.')
-    }
-    transaction.update(ref, status === 'approved'
-      ? { status, approvedAt: serverTimestamp(), approvedBy: adminUid }
-      : { status })
-  })
+  const { data, error } = await supabase.rpc('review_student', { student_uid: uid, decision: status })
+  if (error) throw error
+  return profileFromRow(data)
 }
