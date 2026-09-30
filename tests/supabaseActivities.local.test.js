@@ -4,6 +4,11 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
+import { readFile } from 'node:fs/promises'
+import { SourceTextModule, SyntheticModule } from 'node:vm'
+import * as activityData from '../src/services/supabaseActivityData.js'
+import * as activityPhoto from '../src/services/activityPhoto.js'
+import { activityEditorState, createActivityController } from '../src/services/studentActivityController.js'
 
 function localConfig() {
   try {
@@ -189,6 +194,34 @@ test('S5 local activity RPCs and private Storage lifecycle',async t=>{
       const uploaded=await upload(alice,empty,Buffer.alloc(0))
       if(!uploaded.error)await failure(edit(alice,activity,'Empty',empty),'INVALID_PROOF')
       await discard(alice,empty)
+    })
+    await t.test('S6 service/controller integrates with real local S5 create, reconcile, history, private download and replacement',async()=>{
+      async function frontendApi(who) {
+        const module=new SourceTextModule(await readFile(new URL('../src/services/supabaseActivities.js',import.meta.url),'utf8'))
+        await module.link(specifier=>{
+          const values=specifier.includes('supabaseActivityData')?activityData:specifier.includes('activityPhoto')?activityPhoto:
+            specifier==='./auth'?{authState:{}}:{supabase:who.client}
+          return new SyntheticModule(Object.keys(values),function(){for(const [key,value]of Object.entries(values))this.setExport(key,value)})
+        })
+        await module.evaluate()
+        const api=module.namespace.createActivityApi(who.client,()=>({id:who.id,approved:true}))
+        const allocate=api.prepare
+        api.prepare=async(...args)=>{const ticket=await allocate(...args);paths.add(ticket.photo_path);return ticket}
+        return api
+      }
+      const api=await frontendApi(bob),state=activityEditorState()
+      const controller=createActivityController(state,{api,allowed:()=>true,summary:async()=> (await success(bob.client.rpc('attendance_summary')))[0]})
+      const create=api.create
+      api.create=async(...args)=>{await create(...args);throw new Error('Simulated lost response after commit')}
+      await controller.save({category:'Documentation',description:'S6 local frontend integration',file:new Blob([png],{type:'image/png'})})
+      assert.ok(state.saved);assert.equal(state.attempt,null)
+      const record=state.saved
+      assert.equal((await api.history(3))[0].id,record.id)
+      assert.equal((await api.download(record.photo_path)).size,png.length)
+      await success(bob.client.rpc('attendance_time_out'))
+      await controller.save({category:'Other',description:'S6 replacement after Time Out',file:new Blob([png],{type:'image/png'})},record)
+      assert.equal(state.saved.revision,1);assert.equal(state.saved.created_at,record.created_at)
+      assert.notEqual(state.saved.photo_path,record.photo_path)
     })
   } finally {
     // Only paths allocated by this test and UUIDs it created; trusted LOCAL cleanup.

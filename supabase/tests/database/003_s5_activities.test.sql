@@ -117,5 +117,8 @@ select ok(not private.activity_storage_allowed((select photo_path from draft),'u
 select ok(private.activity_storage_allowed((select photo_path from draft),'delete'),'only discarded own path eligible for delete');
 select ok(not private.activity_storage_allowed((select photo_path from replacement),'delete'),'active path denies delete');
 
+reset role;
+select throws_ok($$update public.activities set revision=10,updated_at=null$$,'23514',null,'edited revision requires a nonnull timestamp');
+select throws_ok($$update public.activities set updated_at=created_at-interval '1 second'$$,'23514',null,'edit timestamp cannot precede creation');
 select * from finish();
 rollback;

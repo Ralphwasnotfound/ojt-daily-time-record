@@ -4,7 +4,7 @@ begin;
 alter table public.activities add column updated_at timestamptz,
   add column revision integer not null default 0;
 alter table public.activities add constraint activities_revision_check check (
-  (revision = 0 and updated_at is null) or (revision > 0 and updated_at >= created_at));
+  (revision = 0 and updated_at is null) or (revision > 0 and updated_at is not null and updated_at >= created_at));
 alter table public.activities drop constraint activities_photo_path_check;
 alter table public.activities add constraint activities_photo_path_check check (
   photo_path = student_uid::text || '/' || id::text || '/proof'

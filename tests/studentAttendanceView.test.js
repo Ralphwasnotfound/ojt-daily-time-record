@@ -11,7 +11,7 @@ import * as presentation from '../src/services/supabaseAttendancePresentation.js
 
 const profile = { uid: 'alice', fullName: 'Real Student', role: 'student', status: 'approved', requiredHours: 486 }
 const model = () => ({ ready: false, loading: true, busy: false, error: '', notice: '', state: { open_session_id: null, open_time_in: null, started_today: false, completed_seconds: 0, completed_sessions: 0 }, records: [] })
-async function loadComponent(filename) {
+export async function loadComponent(filename) {
   const cache = new Map()
   function synthetic(exports) {
     return new SyntheticModule(Object.keys(exports), function () {
@@ -37,6 +37,8 @@ async function loadComponent(filename) {
       if (specifier === './accountPolicy') return synthetic({ accountDestination: () => '/student' })
       if (specifier.endsWith('supabaseAttendanceController.js')) return synthetic({ attendanceUiState: model, createStudentAttendanceController: () => {} })
       if (specifier.endsWith('supabaseAttendancePresentation.js')) return synthetic(presentation)
+      if (specifier.endsWith('supabaseActivities.js')) return synthetic({ activityApi: {}, activityAccountKey: () => 'alice', approvedActivityStudent: () => true })
+      if (specifier.endsWith('supabaseAttendance.js')) return synthetic({ getAttendanceSummary: async () => ({ open_session_id: null }) })
       let target = path.resolve(path.dirname(file), specifier)
       if (!path.extname(target)) target += '.js'
       return load(target)
@@ -75,7 +77,10 @@ test('student views render explicit loading and real empty attendance without ol
       assert.doesNotMatch(empty, /Captured:/)
     }
     if (name === 'StudentDashboard') assert.match(empty, /Real Student/)
-    if (name === 'HistoryView') assert.match(empty, /Sample activity data only/)
+    if (name === 'HistoryView') {
+      assert.match(empty, /25 records per page/)
+      assert.doesNotMatch(empty, /Sample activity data only|Activity Updates \(sample\)/)
+    }
   }
 })
 test('completed attendance disables another Time In and renders actual duration', async () => {

@@ -1,22 +1,14 @@
 <script>
 import studentAttendanceMixin from '../../services/studentAttendanceMixin.js'
 import AttendanceFeedback from '../../components/AttendanceFeedback.vue'
-import ExpandableList from '../../components/ExpandableList.vue'
-import { Plus, ArrowRight, Clock3, CalendarDays, GraduationCap, LogIn, LogOut, CodeXml, FileText, Headphones, Image } from 'lucide-vue-next'
+import ActivityFeed from '../../components/ActivityFeed.vue'
+import { Plus, ArrowRight, Clock3, CalendarDays, GraduationCap, LogIn, LogOut } from 'lucide-vue-next'
 
 export default {
   name: 'StudentDashboard',
   mixins: [studentAttendanceMixin],
-  components: { AttendanceFeedback, ExpandableList, Plus, ArrowRight, Clock3, CalendarDays, GraduationCap, LogIn, LogOut, CodeXml, FileText, Headphones, Image },
-  data() {
-    return {
-      activities: [
-          { id: 1, category: 'Programming', icon: 'CodeXml', description: 'Worked on the company website and fixed responsive layouts.', time: '12:10 PM', hasPhoto: true },
-          { id: 2, category: 'Documentation', icon: 'FileText', description: 'Updated the user guide with screenshots of the inventory system.', time: '10:34 AM', hasPhoto: true },
-          { id: 3, category: 'IT Support', icon: 'Headphones', description: 'Helped the office team troubleshoot a printer connection.', time: '9:15 AM', hasPhoto: false },
-        ],
-    }
-  },
+  components: { AttendanceFeedback, ActivityFeed, Plus, ArrowRight, Clock3, CalendarDays, GraduationCap, LogIn, LogOut },
+
 }
 </script>
 
@@ -33,7 +25,7 @@ export default {
       </RouterLink>
     </header>
 
-    <p class="border-l-2 border-brand-gold pl-3 text-xs leading-5 text-stone-500">Attendance and completed hours are live. Recent activities below remain sample data.</p>
+    <p class="border-l-2 border-brand-gold pl-3 text-xs leading-5 text-stone-500">Attendance, completed hours and recent activity updates come from your records.</p>
 
     <AttendanceFeedback :state="attendanceUi" @refresh="refreshAttendance" />
     <section aria-label="OJT summary" class="grid gap-4 md:grid-cols-3">
@@ -74,19 +66,7 @@ export default {
 
       <section aria-labelledby="activity-heading" class="rounded-xl border border-stone-200 bg-white p-5 sm:p-6 xl:col-span-3">
         <h2 id="activity-heading" class="text-lg font-semibold text-stone-900">Recent Activity</h2>
-        <p class="mt-1 text-sm text-stone-500">Sample activities — not connected to Firestore yet.</p>
-        <ExpandableList :items="activities" v-slot="{ visibleItems }">
-<ul class="mt-2 divide-y divide-stone-100">
-          <li v-for="activity in visibleItems" :key="activity.id" class="flex gap-3 py-5 last:pb-0">
-            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-stone-50 text-brand"><component :is="activity.icon" :size="18" aria-hidden="true" /></span>
-            <div class="min-w-0 flex-1">
-              <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"><h3 class="text-sm font-semibold text-stone-800">{{ activity.category }}</h3><span class="text-xs text-stone-500">{{ activity.time }}</span></div>
-              <p class="mt-2 text-sm leading-6 text-stone-600">{{ activity.description }}</p>
-              <p v-if="activity.hasPhoto" class="mt-2 flex items-center gap-1.5 text-xs text-stone-500"><Image :size="14" aria-hidden="true" />Photo attached</p>
-            </div>
-          </li>
-        </ul>
-</ExpandableList>
+        <ActivityFeed recent />
       </section>
     </div>
   </div>

@@ -72,7 +72,10 @@ release savepoint future_policy;
 
 create function pg_temp.activity_fixture(p_id integer, patch jsonb default '{}') returns void language plpgsql as $$
 begin
-  insert into public.activities select r.* from jsonb_populate_record(null::public.activities,
+  -- Name S1 columns so later schema defaults (S5 revision) still apply.
+  insert into public.activities(id,student_uid,attendance_session_id,category,description,photo_path,created_at)
+    select r.id,r.student_uid,r.attendance_session_id,r.category,r.description,r.photo_path,r.created_at
+    from jsonb_populate_record(null::public.activities,
     jsonb_build_object('id','20000000-0000-4000-8000-' || lpad(p_id::text,12,'0'),
       'student_uid','00000000-0000-4000-8000-000000000002',
       'attendance_session_id','10000000-0000-4000-8000-000000000002',
