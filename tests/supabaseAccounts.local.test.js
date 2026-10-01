@@ -74,7 +74,11 @@ test('local SDK registration, RLS, review, session persistence and logout', asyn
     const carol = await fixture('carol')
     sql(`insert into public.profiles(id, full_name, email, role, status, department, approved_at)
       values ('${admin.id}', 'Local Test Admin', '${admin.email}', 'admin', 'approved', 'BSIT Department', now());`)
-    const registration = id => ({ fullName: ' Local Student ', studentId: id, program: 'BS Information Technology', role: 'admin', status: 'approved', email: 'forged@example.invalid' })
+    for (const suffix of ['A','RACE']) {
+      const added = await admin.client.rpc('admin_add_authorized_student', { student_id: 'S2-' + prefix.toUpperCase() + '-' + suffix, expected_name: 'Reference, Local Student' })
+      assert.equal(added.error, null)
+    }
+    const registration = id => ({ fullName: ' Local Student ', lastName: 'Reference', studentId: id, program: 'BS Information Technology', role: 'admin', status: 'approved', email: 'forged@example.invalid' })
 
     await t.test('RPC owns authority fields and duplicate student IDs cannot create a second profile', async () => {
       const profile = await alice.api.createStudentProfile(registration(` s2-${prefix}-a `))
@@ -136,7 +140,8 @@ test('local SDK registration, RLS, review, session persistence and logout', asyn
   } finally {
     const ids = fixtures.map(entry => `'${entry.id}'`).join(',')
     if (ids) {
-      sql(`delete from public.profiles where id in (${ids}) and role = 'student';
+      sql(`delete from private.authorized_students where created_by in (${ids});
+        delete from public.profiles where id in (${ids}) and role = 'student';
         delete from public.profiles where id in (${ids}) and role = 'admin';`)
       for (const entry of fixtures) {
         const { error } = await root.auth.admin.deleteUser(entry.id)

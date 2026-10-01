@@ -20,6 +20,10 @@ export function createAdminApi(client, identity) {
   }
   const rpc = (name, args = {}) => request(signal => client.rpc(name, args).retry(false).abortSignal(signal))
   return {
+    roster: (args = {}) => rpc('admin_authorized_students', args),
+    addRoster: (studentId, expectedName) => rpc('admin_add_authorized_student', { student_id: studentId, expected_name: expectedName }),
+    updateRosterName: (studentId, expectedName) => rpc('admin_update_authorized_student_name', { student_id: studentId, expected_name: expectedName }),
+    setRosterActive: (studentId, active) => rpc('admin_set_authorized_student_active', { student_id: studentId, is_active: active }),
     dashboard: () => rpc('admin_dashboard'),
     students: (args = {}) => rpc('admin_students', args),
     activities: (args = {}) => rpc('admin_activities', args),

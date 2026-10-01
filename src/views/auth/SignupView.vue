@@ -10,7 +10,7 @@ export default {
     return {
       logoUrl, busy: false, error: '', authState,
       logoutOpen: false, loggingOut: false, logoutError: '',
-      form: { fullName: authState.user?.user_metadata?.full_name || authState.user?.user_metadata?.name || '', studentId: '', program: 'BS Information Technology' },
+      form: { fullName: authState.user?.user_metadata?.full_name || authState.user?.user_metadata?.name || '', studentId: '', lastName: '', program: 'BS Information Technology' },
     }
   },
   methods: {
@@ -47,12 +47,13 @@ export default {
       <header class="mb-6 text-center"><img :src="logoUrl" alt="BSIT department logo" class="mx-auto h-20 w-20 object-contain" /><p class="mt-3 text-xl font-semibold text-brand">OJT Monitoring &amp; DTR</p><p class="mt-1 text-sm text-stone-500">BSIT Department</p></header>
       <section class="rounded-2xl border border-stone-200 bg-white p-5 sm:p-8">
         <h1 class="text-2xl font-semibold">Complete Registration</h1>
-        <p class="mt-2 text-sm leading-6 text-stone-500">Confirm your student details for BSIT administrator review. Workspace access begins after approval.</p>
+        <p class="mt-2 text-sm leading-6 text-stone-500">Your Student ID and Last Name must match the department-authorized roster. Registration still requires administrator approval.</p>
         <form class="mt-6 space-y-4" :aria-busy="busy" @submit.prevent="register">
           <fieldset :disabled="busy" class="space-y-4">
             <div><label for="signup-name" class="mb-2 block text-sm font-medium">Full Name</label><input id="signup-name" v-model="form.fullName" autocomplete="name" required maxlength="100" class="min-h-12 w-full min-w-0 rounded-lg border border-stone-300 px-3 py-3 text-sm" /></div>
             <div><label for="signup-email" class="mb-2 block text-sm font-medium">Google email</label><input id="signup-email" :value="authState.user?.email || ''" type="email" readonly class="min-h-12 w-full min-w-0 rounded-lg border border-stone-300 bg-stone-50 px-3 py-3 text-sm" /><p class="mt-1 text-xs text-stone-500">Verified by your Google account; cannot be edited here.</p></div>
             <div><label for="signup-studentId" class="mb-2 block text-sm font-medium">Student ID</label><input id="signup-studentId" v-model="form.studentId" required maxlength="30" class="min-h-12 w-full min-w-0 rounded-lg border border-stone-300 px-3 py-3 text-sm" /></div>
+            <div><label for="signup-lastName" class="mb-2 block text-sm font-medium">Last Name</label><input id="signup-lastName" v-model="form.lastName" autocomplete="family-name" required maxlength="100" class="min-h-12 w-full min-w-0 rounded-lg border border-stone-300 px-3 py-3 text-sm" /></div>
             <div><label for="signup-program" class="mb-2 block text-sm font-medium">Program</label><input id="signup-program" :value="form.program" readonly class="min-h-12 w-full min-w-0 rounded-lg border border-stone-300 bg-stone-50 px-3 py-3 text-sm" /></div>
             <button type="submit" class="min-h-12 w-full rounded-lg bg-brand px-4 py-3 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-60">{{ busy ? 'Submitting...' : 'Submit Registration' }}</button>
           </fieldset>

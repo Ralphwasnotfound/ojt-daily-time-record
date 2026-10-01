@@ -118,7 +118,7 @@ set local role anon;
 select throws_ok('select * from public.profiles', '42501', null, 'anonymous profile read denied');
 select throws_ok('select * from public.attendance_sessions', '42501', null, 'anonymous attendance denied');
 select throws_ok('select * from public.activities', '42501', null, 'anonymous activity denied');
-select throws_ok($$select public.complete_student_registration('Test','ABC')$$, '42501', null, 'anonymous registration denied');
+select throws_ok($$select public.complete_student_registration('Test','ABC','Reference')$$, '42501', null, 'anonymous registration denied');
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000003',true);
@@ -157,7 +157,9 @@ select ok(not has_function_privilege('authenticated','private.trim_text(text)','
 select ok(not has_function_privilege('anon','public.review_student(uuid,text)','EXECUTE'),'anonymous cannot review');
 select ok(prosecdef and 'search_path=""'=any(proconfig), proname || ' definer hardened')
 from pg_proc where oid in ('private.is_approved_student()'::regprocedure,'private.is_approved_admin()'::regprocedure,
- 'public.complete_student_registration(text,text)'::regprocedure,'public.review_student(uuid,text)'::regprocedure);
+ 'public.complete_student_registration(text,text,text)'::regprocedure,'public.review_student(uuid,text)'::regprocedure);
+
+insert into private.authorized_students(student_id,expected_name,normalized_last_name) values ('ABC-123','Reference, Student','reference');
 
 -- RPC identity is derived from Auth-owned records; editable metadata is insufficient.
 update auth.users set raw_user_meta_data='{"provider":"google","email_verified":true,"role":"admin"}' where id='00000000-0000-4000-8000-000000000010';
@@ -167,26 +169,26 @@ update auth.users set email_confirmed_at=null where id='00000000-0000-4000-8000-
 update auth.identities set identity_data=jsonb_set(identity_data,'{email}','"different@example.invalid"') where user_id='00000000-0000-4000-8000-000000000013';
 set local role authenticated;
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000010',true);
-select throws_ok($$select public.complete_student_registration('Name','TEST-10')$$,'42501','VERIFIED_GOOGLE_IDENTITY_REQUIRED','editable provider metadata grants nothing');
+select throws_ok($$select public.complete_student_registration('Name','TEST-10','Reference')$$,'42501','VERIFIED_GOOGLE_IDENTITY_REQUIRED','editable provider metadata grants nothing');
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000011',true);
-select throws_ok($$select public.complete_student_registration('Name','TEST-11')$$,'42501','VERIFIED_GOOGLE_IDENTITY_REQUIRED','unverified Google identity denied');
+select throws_ok($$select public.complete_student_registration('Name','TEST-11','Reference')$$,'42501','VERIFIED_GOOGLE_IDENTITY_REQUIRED','unverified Google identity denied');
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000012',true);
-select throws_ok($$select public.complete_student_registration('Name','TEST-12')$$,'42501','VERIFIED_GOOGLE_IDENTITY_REQUIRED','unconfirmed Auth email denied');
+select throws_ok($$select public.complete_student_registration('Name','TEST-12','Reference')$$,'42501','VERIFIED_GOOGLE_IDENTITY_REQUIRED','unconfirmed Auth email denied');
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000013',true);
-select throws_ok($$select public.complete_student_registration('Name','TEST-13')$$,'42501','VERIFIED_GOOGLE_IDENTITY_REQUIRED','identity/Auth email mismatch denied');
+select throws_ok($$select public.complete_student_registration('Name','TEST-13','Reference')$$,'42501','VERIFIED_GOOGLE_IDENTITY_REQUIRED','identity/Auth email mismatch denied');
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000006',true);
-select lives_ok($$select public.complete_student_registration('  New Student  ','  abc-123  ')$$,'valid registration');
+select lives_ok($$select public.complete_student_registration('  New Student  ','  abc-123  ','Reference')$$,'valid registration');
 select is((select student_id from public.profiles),'ABC-123','database canonicalizes Student ID');
 select is((select full_name from public.profiles),'New Student','database trims name');
 select is((select email from public.profiles),'s1-test-6@example.invalid','trusted email copied');
 select ok((select role='student' and status='pending' and required_hours=486 and approved_by is null and approved_at is null and created_at=now() from public.profiles),'registration fixes authority fields');
-select throws_ok($$select public.complete_student_registration('Replace','NEW-123')$$,'P0001','PROFILE_ALREADY_EXISTS','existing profile cannot be overwritten');
-select throws_ok($$select public.complete_student_registration('Name','ABC','admin')$$,'42883',null,'RPC has no role parameter');
+select throws_ok($$select public.complete_student_registration('Replace','NEW-123','Reference')$$,'P0001','PROFILE_ALREADY_EXISTS','existing profile cannot be overwritten');
+select throws_ok($$select public.complete_student_registration('Name','ABC','admin','Reference')$$,'42883',null,'RPC has no role parameter');
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000007',true);
-select throws_ok($$select public.complete_student_registration('Other','abc-123')$$,'23505',null,'normalized duplicate ID rejected');
+select throws_ok($$select public.complete_student_registration('Other','abc-123','Reference')$$,'23505',null,'normalized duplicate ID rejected');
 select is((select count(*)::integer from public.profiles),0,'failed registration leaves no partial profile');
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',true);
-select throws_ok($$select public.complete_student_registration('Replace Admin','ADM-001')$$,'P0001','PROFILE_ALREADY_EXISTS','admin never overwritten');
+select throws_ok($$select public.complete_student_registration('Replace Admin','ADM-001','Reference')$$,'P0001','PROFILE_ALREADY_EXISTS','admin never overwritten');
 select lives_ok($$select public.review_student('00000000-0000-4000-8000-000000000006','approved')$$,'admin approves pending');
 select ok((select status='approved' and approved_by=auth.uid() and approved_at is not null from public.profiles where id='00000000-0000-4000-8000-000000000006'),'server approval metadata');
 select throws_ok($$select public.review_student('00000000-0000-4000-8000-000000000006','rejected')$$,'P0001','REGISTRATION_NOT_PENDING','cannot re-review approved');

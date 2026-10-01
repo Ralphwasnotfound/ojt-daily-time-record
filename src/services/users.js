@@ -8,6 +8,7 @@ export function profileFromRow(row) {
     uid: row.id, fullName: row.full_name, studentId: row.student_id,
     email: row.email, program: row.program, role: row.role, status: row.status,
     requiredHours: row.required_hours, department: row.department,
+    rosterEligible: row.roster_eligible === true,
     createdAt: row.created_at, approvedAt: row.approved_at, approvedBy: row.approved_by,
   }
 }
@@ -19,7 +20,7 @@ export async function readProfile(id) {
 export async function createStudentProfile(form) {
   // S1 derives UID/email/role/status/program/hours from trusted database state.
   const { data, error } = await supabase.rpc('complete_student_registration', {
-    full_name: form.fullName.trim(), student_id: normalizeStudentId(form.studentId),
+    full_name: form.fullName.trim(), student_id: normalizeStudentId(form.studentId), last_name: form.lastName.trim(),
   })
   if (error) throw error
   return profileFromRow(data)

@@ -24,7 +24,7 @@ async function load(file, {state=auth(),client={},review=async()=>{},globals={},
       if(specifier==='lucide-vue-next')return synthetic(icons)
       if(/\/auth(?:\.js)?$/.test(specifier))return synthetic({authState:state})
       if(/supabase\/supabase\.js$/.test(specifier))return synthetic({supabase:client})
-      if(/\/users$/.test(specifier))return synthetic({reviewStudent:review,profileFromRow:r=>({uid:r.id,fullName:r.full_name,studentId:r.student_id,email:r.email,status:r.status,program:r.program,createdAt:r.created_at})})
+      if(/\/users$/.test(specifier))return synthetic({reviewStudent:review,profileFromRow:r=>({uid:r.id,fullName:r.full_name,studentId:r.student_id,email:r.email,status:r.status,program:r.program,rosterEligible:r.roster_eligible===true,createdAt:r.created_at})})
       let target=path.resolve(path.dirname(filename),specifier);if(!path.extname(target))target+='.js';return module(target)
     });return m
     })()
@@ -120,7 +120,7 @@ test('admin private proof loads authenticated on demand, revokes on hide/account
 for(const decision of ['approved','rejected'])test(`review preserves ${decision} RPC and confirmation outcome`,async()=>{
   const decisions=[],client={rpc(){return {retry(){return this},abortSignal(){return {data:[],error:null}}}}}
   const {default:c}=await load('src/components/PendingRegistrations.vue',{client,review:async(...args)=>decisions.push(args)})
-  const instance=vm(c,{identity:'admin',decision:{uid:'student',status:decision},$emit(){}});await instance.confirmReview();assert.equal(decisions[0][0],'student');assert.equal(decisions[0][1],decision);assert.equal(instance.busy,false);assert.match(instance.notice,decision==='approved'?/approved/:/rejected/)
+  const instance=vm(c,{identity:'admin',registrations:[{uid:'student',rosterEligible:true}],decision:{uid:'student',status:decision},$emit(){}});await instance.confirmReview();assert.equal(decisions[0][0],'student');assert.equal(decisions[0][1],decision);assert.equal(instance.busy,false);assert.match(instance.notice,decision==='approved'?/approved/:/rejected/)
 })
 test('Admin Profile uses trusted identity without mock fallback or editing',async()=>{const html=await render('src/views/admin/AdminProfileView.vue');assert.match(html,/Trusted Admin/);assert.match(html,/trusted@example.invalid/);assert.doesNotMatch(html,/Jamie Reyes|admin@example.com|Save Changes/)} )
 test('active Admin files contain no Firebase imports, mock arrays or unbounded read loops',async()=>{
@@ -205,10 +205,10 @@ test('expanded bounded Next page replaces rows instead of accumulating whole his
   await controller.refresh();assert.equal(state.rows.length,25);const next=controller.next();assert.equal(calls[1].id,'activity-24')
   controller.stop();gate.resolve([{id:'late'}]);await next;assert.equal(state.rows.length,0)
 })
-test('only Activity Monitor switches to student-first presentation',async()=>{
+test('Admin overview uses disclosures while student-side feeds remain independent',async()=>{
   const monitor=await readFile('src/views/admin/ActivityMonitorView.vue','utf8');assert.match(monitor,/AdminActivityStudents/)
   const dashboard=await readFile('src/views/admin/AdminDashboard.vue','utf8'),details=await readFile('src/views/admin/StudentDetailsView.vue','utf8')
-  assert.match(dashboard,/<AdminRecords kind="activities" recent/);assert.match(details,/kind="activities" :student-id="id"/)
+  assert.match(dashboard,/<AdminRecentActivities/);assert.match(details,/kind="activities" :student-id="id"/)
   for(const name of ['ActivityView','HistoryView','StudentDashboard'])assert.doesNotMatch(await readFile(`src/views/student/${name}.vue`,'utf8'),/AdminActivityStudents|admin_activity_students/)
 })
 
@@ -306,4 +306,79 @@ test('Logs makes submission-date and unedited inclusion semantics explicit',asyn
   const html=await render('src/views/admin/ActivityMonitorView.vue',{activeTab:'logs'})
   assert.match(html,/Includes unedited activities/);assert.match(html,/Date filters use the original submission date/)
   assert.match(html,/Submission date · Manila/);assert.doesNotMatch(html,/Edited only|Last edited date/)
+})
+
+// U2: exercise the actual disclosure tree, bounded requests and cleanup.
+async function mountU2(details=false, {gate=null, photoGate=null}={}) {
+  const state=vue.reactive(auth()),calls=[],revoked=[],listeners=new Set()
+  const rows=[{...activity,id:'a',student_uid:'uid-a',full_name:'Same Name'},{...activity,id:'b',student_uid:'uid-b',full_name:'Same Name'},{...activity,id:'c',student_uid:'uid-a',full_name:'Same Name'}]
+  const client={rpc(name,args){calls.push([name,args]);return {retry(){return this},abortSignal(){return name==='admin_activities' && gate ? gate.promise : {data:name==='admin_students'?[student]:name==='admin_activity_revisions'?[{...activity,version_at:activity.created_at,current_revision:3}]:details?Array.from({length:args.page_size},(_,i)=>({...activity,id:`${args.before_id?'next':'first'}-${i}`,student_uid:args.target_uid})):rows,error:null}}}},storage:{from(){return {download(){calls.push(['download']);return photoGate?photoGate.promise:{data:new Blob(['x'],{type:'image/png'}),error:null}}}}}}
+  class Image {set src(value){this.naturalWidth=1;this.naturalHeight=1;this.onload()}}
+  const {default:component}=await load(details?'src/views/admin/StudentDetailsView.vue':'src/components/AdminRecentActivities.vue',{state,client,virtualHost:true,globals:{Image,window:{addEventListener:(e,fn)=>listeners.add(fn),removeEventListener:(e,fn)=>listeners.delete(fn)},URL:{createObjectURL:()=> 'blob:u2',revokeObjectURL:url=>revoked.push(url)}}})
+  const {renderer,root}=testRenderer(),app=renderer.createApp(component,details?{id:'student'}:{})
+  app.component('RouterLink',{render(){return vue.h('a',{},this.$slots.default?.())}})
+  const instance=app.mount(root);await settle()
+  return {app,instance,state,calls,revoked,listeners,root,find:name=>findComponent(instance.$.subTree,name)}
+}
+function hostFind(node,predicate) {if(predicate(node))return node;for(const child of node.children||[]){const found=hostFind(child,predicate);if(found)return found}return null}
+test('U2 disclosure native button has controlled aria relationships and unmounts slot content',async()=>{
+  const {default:c}=await load('src/components/ActivityDisclosure.vue')
+  let mounts=0,unmounts=0
+  const child={mounted(){mounts++},beforeUnmount(){unmounts++},render(){return vue.h('p','Private body')}}
+  const parent={data:()=>({expanded:false}),render(){return vue.h(c,{id:'test-disclosure',expanded:this.expanded,'onUpdate:expanded':v=>this.expanded=v},{default:()=>vue.h(child)})}}
+  const {renderer,root}=testRenderer(),app=renderer.createApp(parent);app.mount(root)
+  const button=hostFind(root,n=>n.type==='button');assert.equal(button.props.type,'button');assert.equal(button.props['aria-expanded'],false);assert.equal(button.props['aria-controls'],'test-disclosure');assert.equal(mounts,0)
+  // Native buttons supply Enter/Space activation without custom key handlers.
+  button.props.onClick();await vue.nextTick();assert.equal(button.props['aria-expanded'],true);assert.equal(mounts,1)
+  assert.equal(hostFind(root,n=>n.props.id==='test-disclosure').props['aria-labelledby'],'test-disclosure-toggle')
+  button.props.onClick();await vue.nextTick();assert.equal(unmounts,1);assert.equal(hostFind(root,n=>n.props.id==='test-disclosure'),null);app.unmount()
+})
+test('U2 Dashboard groups only the latest three records by UID and expands without more reads or audit/proof requests',async()=>{
+ const f=await mountU2();assert.equal(f.calls.length,1);assert.equal(f.calls[0][0],'admin_activities');assert.equal(f.calls[0][1].page_size,3)
+ assert.equal(f.instance.groups.length,2);assert.equal(f.instance.groups[0].activities.length,2);assert.equal(f.find('AdminActivityCard'),null)
+ f.instance.toggle('uid-a',true);await settle();assert.equal(f.find('AdminActivityCard').activity.id,'a');assert.equal(f.calls.length,1)
+ f.instance.toggle('uid-b',true);await settle();assert.equal(f.instance.opened,'uid-b');assert.equal(f.find('AdminActivityCard').activity.id,'b');assert.equal(f.calls.length,1)
+ const html=await render('src/components/AdminRecentActivities.vue',{state:f.instance.state});assert.match(html,/2 of the latest 3 updates/);assert.doesNotMatch(html,/total activities|View Edit History|Edited ×/)
+ f.app.unmount();assert.equal(f.listeners.size,0)
+})
+for(const ending of ['collapse','logout','unmount','switch'])test(`U2 Dashboard photo cleanup on ${ending}`,async()=>{
+ const f=await mountU2();f.instance.toggle('uid-a',true);await settle();const proof=f.find('AdminActivityProof');await proof.show();assert.equal(proof.url,'blob:u2')
+ if(ending==='collapse')f.instance.toggle('uid-a',false);if(ending==='switch')f.instance.toggle('uid-b',true);if(ending==='logout')f.state.user=null;if(ending==='unmount')f.app.unmount();await settle();assert.equal(proof.url,'');assert.equal(f.revoked.length,2)
+ if(ending!=='unmount')f.app.unmount();assert.equal(f.listeners.size,0)
+})
+test('U2 Details displays all five server records immediately with filters and cursor pagination',async()=>{
+ const f=await mountU2(true);f.instance.activeTab='activities';await settle();const records=f.find('AdminRecords')
+ assert.ok(records);assert.equal(f.find('ActivityDisclosure'),null);assert.equal(records.state.rows.length,5)
+ let args=f.calls.at(-1)[1];assert.equal(args.target_uid,'student');assert.equal(args.page_size,5);assert.equal(args.before_id,null)
+ assert.equal(f.find('ExpandableList').visibleItems.length,5);assert.equal(f.find('ExpandableList').hiddenCount,0)
+ assert.equal(f.calls.filter(c=>['download','admin_activity_revisions'].includes(c[0])).length,0)
+ const html=await render('src/components/AdminRecords.vue',{state:records.state},{kind:'activities',studentId:'student',pageSize:5,collapseRecords:false})
+ assert.equal((html.match(/Real server update/g)||[]).length,5);assert.doesNotMatch(html,/Show More|Show Less|View Activities/);assert.match(html,/5 records per page/)
+ const proof=f.find('AdminActivityProof');await proof.show();await records.controller.next();await settle();assert.equal(proof.url,'')
+ args=f.calls.filter(c=>c[0]==='admin_activities').at(-1)[1];assert.equal(args.before_id,'first-4');assert.equal(args.page_size,5);assert.equal(records.state.page,1)
+ await records.controller.previous();assert.equal(records.state.page,0);assert.equal(f.calls.at(-1)[1].page_size,5)
+ await records.controller.next();records.category='IT Support';records.day='2026-10-01';await settle();args=f.calls.at(-1)[1];assert.equal(args.category_filter,'IT Support');assert.equal(args.on_day,'2026-10-01');assert.equal(args.page_size,5);assert.equal(args.before_id,null);assert.equal(records.state.page,0)
+ records.opened=records.state.rows[0].id;await settle();assert.equal(f.calls.at(-1)[0],'admin_activity_revisions');assert.equal(f.calls.at(-1)[1].page_size,25)
+ f.app.unmount();assert.equal(f.listeners.size,0)
+})
+for(const ending of ['filter','student','tab','logout','unmount'])test(`U2 Details proof cleanup on ${ending}`,async()=>{
+ const f=await mountU2(true);f.instance.activeTab='activities';await settle();const proof=f.find('AdminActivityProof');await proof.show()
+ if(ending==='filter')f.find('AdminRecords').category='Programming';if(ending==='student')f.instance.$.props.id='another-student';if(ending==='tab')f.instance.activeTab='overview';if(ending==='logout')f.state.user=null;if(ending==='unmount')f.app.unmount();await settle();assert.equal(proof.url,'');assert.equal(f.revoked.length,2);if(ending!=='unmount')f.app.unmount()
+})
+test('U2 Details ignores history resolving after navigating away',async()=>{
+ const gate=defer(),f=await mountU2(true,{gate});f.instance.activeTab='activities';await settle();const records=f.find('AdminRecords');f.instance.activeTab='overview';await settle();gate.resolve({data:[activity],error:null});await settle();assert.equal(records.state.rows.length,0);assert.equal(f.find('AdminActivityCard'),null);f.app.unmount()
+})
+for(const ending of ['page','filter','student','logout'])test(`U2 Details ignores late photo after ${ending}`,async()=>{
+ const photoGate=defer(),f=await mountU2(true,{photoGate});f.instance.activeTab='activities';await settle();const proof=f.find('AdminActivityProof'),pending=proof.show()
+ if(ending==='page')await f.find('AdminRecords').controller.next();if(ending==='filter')f.find('AdminRecords').category='Programming';if(ending==='student')f.instance.$.props.id='another-student';if(ending==='logout')f.state.user=null
+ await settle();photoGate.resolve({data:new Blob(['x'],{type:'image/png'}),error:null});await pending;assert.equal(proof.url,'');assert.equal(f.revoked.length,ending==='logout'?0:1);f.app.unmount()
+})
+test('U2 Dashboard ignores old account response and late proof after collapse',async()=>{
+ const gate=defer(),f=await mountU2(false,{gate});f.state.user=null;await settle();gate.resolve({data:[activity],error:null});await settle();assert.equal(f.instance.state.rows.length,0);f.app.unmount()
+ const photoGate=defer(),g=await mountU2(false,{photoGate});g.instance.toggle('uid-a',true);await settle();const proof=g.find('AdminActivityProof'),pending=proof.show();g.instance.toggle('uid-a',false);await settle();photoGate.resolve({data:new Blob(['x'],{type:'image/png'}),error:null});await pending;assert.equal(proof.url,'');assert.equal(g.revoked.length,1);g.app.unmount()
+})
+test('U2 compact components preserve wrapping and touch target structure',async()=>{
+ for(const file of ['ActivityDisclosure','AdminRecentActivities','AdminActivityCard']){const source=await readFile(`src/components/${file}.vue`,'utf8');assert.match(source,/min-w-0/);assert.doesNotMatch(source,/v-show|<script setup/)}
+ const shell=await readFile('src/components/ActivityDisclosure.vue','utf8');assert.match(shell,/min-h-11/);assert.match(shell,/focus-visible/)
+ const card=await readFile('src/components/AdminActivityCard.vue','utf8');assert.match(card,/whitespace-pre-wrap break-words/)
 })

@@ -104,7 +104,8 @@ export function registrationErrorMessage(error) {
   if (error?.message === 'AUTHENTICATION_REQUIRED') return 'Continue with Google before completing registration.'
   if (error?.message === 'VERIFIED_GOOGLE_IDENTITY_REQUIRED') return 'A verified Google identity is required. Sign out and continue with Google again.'
   if (error?.message === 'PROFILE_ALREADY_EXISTS') return 'Your account already has a profile. Refresh your account status to continue.'
-  if (error?.code === '23505') return 'That Student ID is already registered. Check your Student ID or contact the administrator.'
+  if (error?.message === 'STUDENT_IDENTITY_NOT_ELIGIBLE') return 'The Student ID or last name could not be verified. Please check your information or contact the BSIT Department.'
+  if (error?.message === 'STUDENT_ID_ALREADY_REGISTERED') return 'This Student ID is already registered. Contact the administrator if you believe this is incorrect.'
   if (error?.code === '23514' || error?.code === '23502') return 'Check your full name and Student ID, then try again.'
   return 'Registration could not be completed. Check your connection and details, then retry or contact the administrator.'
 }

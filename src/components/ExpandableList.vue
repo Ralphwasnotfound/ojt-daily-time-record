@@ -6,16 +6,17 @@ export default {
   components: { ChevronDown, ChevronUp },
   props: {
     items: { type: Array, required: true },
+    disabled: Boolean,
   },
   data() {
     return { expanded: false }
   },
   computed: {
     visibleItems() {
-      return this.expanded ? this.items : this.items.slice(0, 3)
+      return this.disabled || this.expanded ? this.items : this.items.slice(0, 3)
     },
     hiddenCount() {
-      return Math.max(0, this.items.length - 3)
+      return this.disabled ? 0 : Math.max(0, this.items.length - 3)
     },
   },
   watch: {

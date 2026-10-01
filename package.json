@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --experimental-vm-modules --test tests/supabaseAuth.test.js tests/supabaseAdmin.test.js tests/supabaseAttendanceUi.test.js tests/supabaseActivityUi.test.js tests/studentAttendanceView.test.js",
+    "test": "node --experimental-vm-modules --test tests/supabaseAuth.test.js tests/supabaseAdmin.test.js tests/supabaseAttendanceUi.test.js tests/supabaseActivityUi.test.js tests/studentAttendanceView.test.js tests/supabaseRoster.test.js tests/supabaseRosterSurname.test.js",
     "test:supabase:accounts": "node --experimental-vm-modules --test tests/supabaseAccounts.local.test.js",
     "test:supabase:attendance": "node --test tests/supabaseAttendance.local.test.js",
     "test:supabase:activities": "node --experimental-vm-modules --test tests/supabaseActivities.local.test.js",
@@ -15,7 +15,8 @@
     "supabase:stop": "supabase stop",
     "supabase:reset": "supabase db reset --local --no-seed",
     "test:supabase": "supabase test db --local",
-    "supabase:lint": "supabase db lint --local"
+    "supabase:lint": "supabase db lint --local",
+    "test:supabase:roster": "node --experimental-vm-modules --test tests/supabaseRoster.local.test.js"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

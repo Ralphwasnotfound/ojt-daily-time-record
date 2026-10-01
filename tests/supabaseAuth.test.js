@@ -9,7 +9,7 @@ import * as policy from '../src/services/accountPolicy.js'
 import { browserConfig } from '../src/supabase/config.js'
 
 const user = { id: 'student-uuid', email: 'student@example.com', identities: [{ provider: 'google' }], user_metadata: { role: 'admin' } }
-const form = { fullName: 'Student', studentId: ' ab-123 ', program: 'BS Information Technology' }
+const form = { fullName: 'Student', lastName: 'Reference', studentId: ' ab-123 ', program: 'BS Information Technology' }
 const student = { uid: user.id, role: 'student', status: 'pending' }
 const tick = () => new Promise(resolve => setTimeout(resolve, 10))
 const synthetic = exports => new SyntheticModule(Object.keys(exports), function () {
@@ -211,7 +211,7 @@ test('profile adapters read RLS-filtered profiles; writes use only approved RPC 
   const api = module.namespace
   assert.equal((await api.readProfile(user.id)).uid, user.id)
   await api.createStudentProfile({ ...form, role: 'admin', email: 'forged', uid: 'forged', status: 'approved' })
-  assert.deepEqual(calls.at(-1), ['rpc', 'complete_student_registration', { full_name: 'Student', student_id: 'AB-123' }])
+  assert.deepEqual(calls.at(-1), ['rpc', 'complete_student_registration', { full_name: 'Student', student_id: 'AB-123', last_name: 'Reference' }])
   await api.reviewStudent(user.id, 'approved', 'forged-admin')
   assert.deepEqual(calls.at(-1), ['rpc', 'review_student', { student_uid: user.id, decision: 'approved' }])
   await assert.rejects(api.reviewStudent(user.id, 'admin'))
@@ -353,4 +353,12 @@ test('S4 attendance remains restricted to approved Supabase students', async () 
   assert.equal(vm.attendanceUi.loading, false)
   assert.match(vm.attendanceUi.error, /approved student/)
   assert.equal(mixin.computed.attendanceEligible(), true)
+})
+
+
+test('U1 maps roster errors without treating unrelated uniqueness failures as claimed IDs', async () => {
+  const {api}=await service(); await api.authReady
+  assert.match(api.registrationErrorMessage({message:'STUDENT_IDENTITY_NOT_ELIGIBLE'}),/could not be verified/)
+  assert.match(api.registrationErrorMessage({message:'STUDENT_ID_ALREADY_REGISTERED',code:'23505'}),/already registered/)
+  assert.doesNotMatch(api.registrationErrorMessage({code:'23505',message:'other constraint'}),/already registered/)
 })
