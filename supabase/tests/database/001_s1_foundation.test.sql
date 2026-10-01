@@ -107,6 +107,10 @@ select throws_ok($$delete from public.profiles where id='00000000-0000-4000-8000
 select lives_ok(format('select pg_temp.activity_fixture(%s, %L::jsonb)', 10+n,
   jsonb_build_object('category', category)::text), 'allow exact category: ' || category)
 from unnest(array['Programming / Development','IT Support','Hardware / Maintenance','Documentation','Training / Seminar','Meeting','Administrative Work','Other']) with ordinality c(category,n);
+-- Trusted transaction-only fixture cleanup after S7 adds restrictive audit FKs.
+alter table public.activity_revisions disable trigger audit_immutable;
+delete from public.activity_revisions where activity_id >= '20000000-0000-4000-8000-000000000010';
+alter table public.activity_revisions enable trigger audit_immutable;
 delete from public.activities where id >= '20000000-0000-4000-8000-000000000010';
 
 -- RLS tests use real database roles, not the privileged fixture owner.

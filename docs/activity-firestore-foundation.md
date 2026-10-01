@@ -1,3 +1,5 @@
+> Historical phase report: this records the implementation and validation at that phase. Current setup is documented in [README](../README.md); superseded backend and deployment instructions are not current operations guidance.
+
 # Phase 4A-1: Activity Firestore foundation
 
 No UI integration, Storage, deployment, or attendance policy change is included.

@@ -109,12 +109,12 @@ set local role authenticated;
 select lives_ok($$select public.activity_edit((select id from created),1,'IT Support','Replaced',(select upload_id from replacement))$$,'replacement commits');
 select is((select photo_path from public.activities),(select photo_path from replacement),'new proof attached');
 select is((select count(*)::integer from storage.objects where bucket_id='activity-proofs'),2,'old bytes retained until safe cleanup');
-select is(public.activity_discard_proof((select upload_id from draft)),(select photo_path from draft),'retired path tombstoned before deletion');
+select throws_ok($$select public.activity_discard_proof((select upload_id from draft))$$,'P0001','PROOF_IN_USE','S7 retains audited retired proof');
 select throws_ok($$select public.activity_discard_proof((select upload_id from replacement))$$,'P0001','PROOF_IN_USE','replacement cannot be deleted while active');
 select is(public.activity_discard_proof((select upload_id from unfinished)),(select photo_path from unfinished),'abandoned pending proof can be discarded');
 select throws_ok($$select public.activity_create((select upload_id from unfinished),'Other','late')$$,'P0001','UPLOAD_EXPIRED_OR_DISCARDED','discard cannot race into finalization');
 select ok(not private.activity_storage_allowed((select photo_path from draft),'upload'),'retired discarded path cannot be uploaded again');
-select ok(private.activity_storage_allowed((select photo_path from draft),'delete'),'only discarded own path eligible for delete');
+select ok(not private.activity_storage_allowed((select photo_path from draft),'delete'),'audited historical path denies delete');
 select ok(not private.activity_storage_allowed((select photo_path from replacement),'delete'),'active path denies delete');
 
 reset role;

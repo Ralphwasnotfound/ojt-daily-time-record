@@ -1,36 +1,39 @@
 <script>
-import { listPendingStudents, reviewStudent } from '../services/users'
-
+import { reviewStudent, profileFromRow } from '../services/users'
+import { adminApi, adminKey } from '../services/supabaseAdmin.js'
 export default {
-  name: 'PendingRegistrations',
-  data() {
-    return { registrations: [], loading: false, busy: false, error: '', notice: '', selectedUid: null, decision: null }
-  },
-  mounted() { this.load() },
+  name: 'PendingRegistrations', emits: ['reviewed'],
+  data() { return { registrations: [], loading: false, busy: false, error: '', notice: '', selectedUid: null, decision: null, version: 0, page: 0, cursors: [null], hasNext: false } },
+  computed: { identity() { return adminKey() } },
+  watch: { identity() { this.version++; this.decision = null; this.notice = ''; this.busy = false; this.load() } },
+  mounted() { this.load() }, beforeUnmount() { this.version++; this.registrations = []; this.decision = null },
   methods: {
-    async load() {
-      this.loading = true
-      this.error = ''
-      try { this.registrations = await listPendingStudents() }
-      catch { this.registrations = []; this.error = 'Unable to load pending registrations. Check your connection and administrator permissions.' }
-      finally { this.loading = false }
-    },
-    registrationDate(value) {
-      const date = value ? new Date(value) : null
-      return date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : 'Unavailable'
-    },
-    async confirmReview() {
-      if (this.busy || !this.decision) return
-      this.busy = true
-      this.error = ''
+    async load(page = 0) {
+      if (typeof page !== 'number') page = 0
+      const version = ++this.version, identity = this.identity
+      this.registrations = []; this.loading = !!identity; this.error = ''; this.decision = null; this.selectedUid = null
+      if (page === 0) this.cursors = [null]
+      if (!identity) return
       try {
-        await reviewStudent(this.decision.uid, this.decision.status)
-        this.notice = this.decision.status === 'approved' ? 'Student approved.' : 'Registration rejected. The sign-in account was not deleted.'
-        this.decision = null
-        await this.load()
-      } catch {
-        this.error = 'Unable to apply this decision. Refresh to check whether the registration is still pending and try again.'
-      } finally { this.busy = false }
+        const rows = await adminApi.students({ account_status: 'pending', page_size: 25, after_id: this.cursors[page] })
+        if (version !== this.version || identity !== this.identity) return
+        this.registrations = rows.map(profileFromRow); this.page = page; this.hasNext = rows.length === 25
+        this.cursors[page + 1] = rows.at(-1)?.id || null
+      } catch { if (version === this.version) this.error = 'Unable to load pending registrations. Check your connection and administrator permissions.' }
+      finally { if (version === this.version) this.loading = false }
+    },
+    registrationDate(value) { return value ? new Date(value).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : 'Unavailable' },
+    async confirmReview() {
+      if (this.busy || !this.decision || !this.identity) return
+      const decision = { ...this.decision }, identity = this.identity, version = this.version
+      this.busy = true; this.error = ''
+      try {
+        await reviewStudent(decision.uid, decision.status)
+        if (identity !== this.identity || version !== this.version) return
+        this.notice = decision.status === 'approved' ? 'Student approved.' : 'Registration rejected. The sign-in account was not deleted.'
+        this.decision = null; this.$emit('reviewed'); await this.load()
+      } catch { if (identity === this.identity && version === this.version) this.error = 'Unable to apply this decision. Refresh to check whether the registration is still pending and try again.' }
+      finally { if (identity === this.identity) this.busy = false }
     },
   },
 }
@@ -56,6 +59,7 @@ export default {
         </div>
       </li>
     </ul>
+    <div class="mt-4 flex justify-between gap-3"><button type="button" :disabled="loading || busy || page === 0" class="min-h-11 px-3 text-sm text-brand disabled:opacity-40" @click="load(page - 1)">Previous page</button><span class="self-center text-xs text-stone-500">Page {{ page + 1 }}</span><button type="button" :disabled="loading || busy || !hasNext" class="min-h-11 px-3 text-sm text-brand disabled:opacity-40" @click="load(page + 1)">Next page</button></div>
   </section>
 </template>
 

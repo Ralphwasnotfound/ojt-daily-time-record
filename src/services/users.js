@@ -1,7 +1,7 @@
 import { supabase } from '../supabase/supabase'
 import { normalizeStudentId } from './accountPolicy'
 
-// Existing views use camelCase. uid is a Supabase UUID, never a Firebase UID.
+// Existing views use camelCase. uid is the authenticated Supabase UUID.
 export function profileFromRow(row) {
   if (!row) return null
   return {

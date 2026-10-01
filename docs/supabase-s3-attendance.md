@@ -1,3 +1,5 @@
+> Historical phase report: this records the implementation and validation at that phase. Current setup is documented in [README](../README.md); superseded backend and deployment instructions are not current operations guidance.
+
 # S3 — Supabase attendance backend
 
 S3 adds database RPCs only. S2 auth/account code, Vue pages, the S2 attendance UI

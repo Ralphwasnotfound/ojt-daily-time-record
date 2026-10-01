@@ -1,3 +1,5 @@
+> Historical phase report: this records the implementation and validation at that phase. Current setup is documented in [README](../README.md); superseded backend and deployment instructions are not current operations guidance.
+
 # S2 account/auth migration and hosted configuration gate
 
 ## Scope and inspected dependencies

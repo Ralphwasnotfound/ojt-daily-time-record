@@ -1,3 +1,5 @@
+> Historical phase report: this records the implementation and validation at that phase. Current setup is documented in [README](../README.md); superseded backend and deployment instructions are not current operations guidance.
+
 # S5 — Student activities and private Storage foundation
 
 S5 is backend-only. No Vue page or active frontend service has changed. S2 account
@@ -144,12 +146,14 @@ discard/cleanup. The system does not reopen attendance or invent another session
 5. Reconcile a lost edit response by reading the activity and comparing revision,
    content and photo_path. Blind edit replay is not idempotent: the old revision is
    rejected with ACTIVITY_CHANGED. Never delete either proof based only on a timeout.
-6. Discard the retired proof, then remove its exact path via Storage API. If an
-   upload succeeded but edit failed, the original remains attached and the new
-   reservation can be discarded. Concurrent edits reject stale reservations.
+6. S7 supersedes the original retired-proof cleanup: a proof referenced by
+   activity_revisions must be retained. activity_discard_proof returns PROOF_IN_USE.
+   If an upload succeeded but edit failed and no activity/audit references it, the
+   abandoned reservation can still be discarded. Concurrent edits reject stale reservations.
 
 No automatic deletion of a previous proof occurs. No activity delete RPC exists.
-There is no edit audit-history table in S5; only created_at, updated_at and revision.
+S5 originally stored only created_at, updated_at and revision. S7 adds immutable
+activity_revisions snapshots; see supabase-s7-admin-audit.md for the active retention contract.
 
 ## Reads, errors and Realtime
 
@@ -176,11 +180,11 @@ infrastructure or frontend listener is added in S5.
 Storage bytes and Postgres do not form one atomic transaction. Immutable uploads,
 committed-object metadata checks, DB transaction finalization, revisions and tracked
 reservations provide consistency. Privileged dashboard/service maintenance can
-bypass policies; it must never remove currently referenced proofs.
+bypass policies; it must never remove proofs referenced by activities OR activity_revisions.
 
 For an approved owner with a known upload_id: first call activity_discard_proof.
-It serializes with creation/edit, rejects attached proofs, and irreversibly changes
-pending/retired to discarded. Only after success may Storage remove the returned
+It serializes with creation/edit, rejects attached AND audit-referenced proofs, and
+irreversibly changes only unreferenced pending/retired reservations to discarded. Only after success may Storage remove the returned
 path. Failed byte deletion is safe to retry. Discarded paths cannot be reuploaded
 or attached. Keep reservation tombstones; do not delete them to recycle paths.
 
@@ -193,10 +197,10 @@ Do not assume that expiry automatically deletes bytes.
 Trusted maintenance procedure (future hosted execution needs separate authorization):
 
 1. Identify exact owner/upload IDs in private.activity_proof_uploads for expired
-   pending or retired candidates. Never collect an attached/currently referenced proof.
+   pending or retired candidates. Never collect an attached, current, or audit-referenced proof.
 2. In a short database transaction lock that owner's profiles row FOR UPDATE, then
    re-read/lock the exact reservation. Recheck pending-and-expired or retired, and no
-   activities.photo_path references it. Mark it discarded; commit. This follows the
+   activities.photo_path OR activity_revisions.photo_path references it. Mark it discarded; commit. This follows the
    same profile lock as the RPCs and prevents a cleanup/finalization race.
 3. Delete only the verified discarded path via the Storage dashboard/API in a trusted
    environment. Never expose service-role credentials to the browser or paste them
@@ -205,7 +209,7 @@ Trusted maintenance procedure (future hosted execution needs separate authorizat
    may need another Storage removal after the upload settles. Recheck before removal.
 
 Example transaction for one explicitly reviewed candidate (replace UUID placeholders
-only; this is not an automatically executed task):
+only; this post-S7 example requires the activity_revisions table and is not an automatically executed task):
 
 ```sql
 begin;
@@ -214,6 +218,7 @@ update private.activity_proof_uploads p set state = 'discarded'
 where p.id = '<upload-uuid>'::uuid and p.student_uid = '<owner-uuid>'::uuid
   and (p.state = 'retired' or (p.state = 'pending' and p.expires_at <= clock_timestamp()))
   and not exists (select 1 from public.activities a where a.photo_path = p.photo_path)
+  and not exists (select 1 from public.activity_revisions r where r.photo_path = p.photo_path)
 returning p.photo_path;
 commit;
 ```

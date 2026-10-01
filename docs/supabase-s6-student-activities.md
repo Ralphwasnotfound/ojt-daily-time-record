@@ -1,3 +1,5 @@
+> Historical phase report: this records the implementation and validation at that phase. Current setup is documented in [README](../README.md); superseded backend and deployment instructions are not current operations guidance.
+
 # S6 — Student activity UI integration
 
 Local implementation and validation complete, 2026-10-01. Hosted S6 UI verification is still required. No deployment, hosted operation, S6 migration, S7 work, dynamic Admin activity monitoring, or attendance photo/location/watermark work was performed.
@@ -113,7 +115,7 @@ The integration suites target local Docker Supabase only and clean their fixture
 - No realtime subscription. Refresh/focus/page navigation reconcile data.
 - A full final page may expose a Next button leading to an empty page; reads remain bounded.
 - Request IDs survive while the editor lives, not full page reloads. After leaving during an uncertain submission, inspect History before starting a new intended submission. No authoritative localStorage activity state is used.
-- Leaving/unmounting invalidates UI callbacks but does not blindly delete uncertain proof. Unused reservations/retired proof can remain for the existing trusted S5 maintenance procedure. There is no new background garbage collector. The browser does not infer old reservation IDs or delete attached proof.
+- Leaving/unmounting invalidates UI callbacks but does not blindly delete uncertain proof. Unused reservations can remain for the trusted S5 maintenance procedure. After S7, audit-referenced retired proof is retained and must not be collected; see the S7 report and updated S5 maintenance guards. There is no new background garbage collector. The browser does not infer old reservation IDs or delete attached proof.
 - Image decoding is UX validation, not content sanitization. Very large decoded dimensions can still be expensive even under the byte cap.
 - Camera requires HTTPS or localhost and browser/device permission. Actual Android/iOS behavior remains to be verified.
 - `window.__supabase` is absent from source and production output. Fully reload an already-open development page to remove any property left in that old page's memory by pre-S6 code.

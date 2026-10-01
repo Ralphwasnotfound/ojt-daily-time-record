@@ -178,8 +178,10 @@ test('S5 local activity RPCs and private Storage lifecycle',async t=>{
       const before=activity;activity=await success(edit(alice,activity,'New proof',next))
       assert.equal(activity.created_at,before.created_at);assert.equal(activity.photo_path,next.photo_path)
       await success(alice.client.storage.from('activity-proofs').download(draft.photo_path))
-      await discard(alice,draft)
-      await failure(alice.client.storage.from('activity-proofs').download(draft.photo_path))
+      await failure(alice.client.rpc('activity_discard_proof',{upload_id:draft.upload_id}),'PROOF_IN_USE')
+      await success(admin.client.storage.from('activity-proofs').download(draft.photo_path))
+      await success(alice.client.storage.from('activity-proofs').remove([draft.photo_path]))
+      await success(admin.client.storage.from('activity-proofs').download(draft.photo_path))
       await failure(alice.client.rpc('activity_discard_proof',{upload_id:next.upload_id}),'PROOF_IN_USE')
       await success(alice.client.storage.from('activity-proofs').download(next.photo_path))
     })
@@ -223,12 +225,55 @@ test('S5 local activity RPCs and private Storage lifecycle',async t=>{
       assert.equal(state.saved.revision,1);assert.equal(state.saved.created_at,record.created_at)
       assert.notEqual(state.saved.photo_path,record.photo_path)
     })
+    await t.test('S7 Admin API reads bounded profiles, attendance, activities and immutable history through real REST',async()=>{
+      const module=new SourceTextModule(await readFile(new URL('../src/services/supabaseAdmin.js',import.meta.url),'utf8'))
+      await module.link(specifier=>{
+        const values=specifier.includes('supabase.js')?{supabase:admin.client}:{authState:{}}
+        return new SyntheticModule(Object.keys(values),function(){for(const [key,value]of Object.entries(values))this.setExport(key,value)})
+      });await module.evaluate()
+      const api=module.namespace.createAdminApi(admin.client,()=>admin.id)
+      assert.equal((await api.dashboard()).total,4)
+      const students=await api.students({page_size:1,search:'Bob',account_status:'approved'})
+      assert.equal(students.length,1);assert.equal(students[0].id,bob.id)
+      assert.ok(Number(students[0].completed_seconds)>=0)
+      const rows=await api.activities({page_size:1,target_uid:bob.id})
+      assert.equal(rows.length,1);assert.equal(rows[0].student_uid,bob.id)
+      const history=await api.revisions({target_activity:rows[0].id,page_size:25})
+      assert.equal(history.length,2);assert.deepEqual(history.map(row=>row.revision),[0,1])
+      assert.equal(history[1].current_revision,1);assert.equal(history[0].migration_baseline,false)
+      assert.notEqual(history[0].photo_path,history[1].photo_path)
+      assert.ok((await api.download(history[0].photo_path)).size>0)
+      assert.equal((await api.attendance({target_uid:bob.id,page_size:25})).length,1)
+      const forbidden=module.namespace.createAdminApi(bob.client,()=>bob.id)
+      await assert.rejects(forbidden.dashboard(),error=>error.message==='APPROVED_ADMIN_REQUIRED')
+      const summaries=await api.activityStudents({page_size:25})
+      assert.equal(new Set(summaries.map(row=>row.id)).size,summaries.length)
+      assert.deepEqual(summaries.map(row=>row.id),[alice.id,bob.id].sort())
+      for(const summary of summaries) {
+        assert.equal(Number(summary.total_activities),Number(sql(`select count(*) from public.activities where student_uid='${summary.id}'`)))
+        assert.equal(Number(summary.total_edits),Number(sql(`select sum(revision) from public.activities where student_uid='${summary.id}'`)))
+        assert.equal(summary.matching_activities,summary.total_activities)
+      }
+      const first=await api.activityStudents({page_size:1})
+      const second=await api.activityStudents({page_size:1,after_id:first[0].id})
+      assert.equal(second[0].id,summaries[1].id)
+      assert.equal((await api.activityStudents({search:'Bob'}))[0].id,bob.id)
+      const filtered=await api.activityStudents({search:'Bob',category_filter:rows[0].category,attendance_status:'OUT'})
+      assert.equal(filtered[0].matching_activities,1)
+      assert.equal((await api.activityStudents({search:'Bob',on_day:'2000-01-01'})).length,0)
+      for(const who of [alice,bob,pending,rejected]) await assert.rejects(
+        module.namespace.createAdminApi(who.client,()=>who.id).activityStudents(),error=>error.message==='APPROVED_ADMIN_REQUIRED')
+      await assert.rejects(module.namespace.createAdminApi(anonymous,()=>admin.id).activityStudents())
+    })
   } finally {
     // Only paths allocated by this test and UUIDs it created; trusted LOCAL cleanup.
     if(paths.size)await success(root.storage.from('activity-proofs').remove([...paths]))
     if(fixtures.length) {
       const ids=fixtures.map(f=>`'${f.id}'`).join(',')
-      sql(`begin; delete from public.activities where student_uid in (${ids});
+      sql(`begin; alter table public.activity_revisions disable trigger audit_immutable;
+        delete from public.activity_revisions where student_uid in (${ids});
+        alter table public.activity_revisions enable trigger audit_immutable;
+        delete from public.activities where student_uid in (${ids});
         delete from private.activity_proof_uploads where student_uid in (${ids});
         delete from public.attendance_sessions where student_uid in (${ids});
         delete from public.profiles where id in (${ids}) and role='student';

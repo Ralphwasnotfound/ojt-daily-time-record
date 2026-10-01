@@ -1,3 +1,5 @@
+> Historical phase report: this records the implementation and validation at that phase. Current setup is documented in [README](../README.md); superseded backend and deployment instructions are not current operations guidance.
+
 # Phase 3A-2 — real student attendance UI
 
 Student Attendance, Dashboard attendance cards and the History attendance tab now use the deployed Phase 3A-1 service. Admin screens, account authorization, rules/indexes and activity mock records are unchanged. No photos/Storage or deployment is included.

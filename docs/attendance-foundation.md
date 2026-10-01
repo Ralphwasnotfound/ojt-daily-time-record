@@ -1,3 +1,5 @@
+> Historical phase report: this records the implementation and validation at that phase. Current setup is documented in [README](../README.md); superseded backend and deployment instructions are not current operations guidance.
+
 # Phase 3A-1: attendance data foundation
 
 No UI is connected to these services yet. Authentication, registration, user approval, routing and the existing users/studentIds rules are unchanged. Nothing is deployed by the test commands.

@@ -1,3 +1,5 @@
+> Historical phase report: this records the implementation and validation at that phase. Current setup is documented in [README](../README.md); superseded backend and deployment instructions are not current operations guidance.
+
 # S4 — Student attendance UI integration
 
 S3 hosted completion was confirmed by the project owner. S4 connects the student
