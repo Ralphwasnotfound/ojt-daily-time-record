@@ -7,7 +7,7 @@ export function formatManilaDate(value, weekdayOnly = false) {
 function time(value) {
   return value ? new Intl.DateTimeFormat('en-US', { timeZone: zone, hour: 'numeric', minute: '2-digit' }).format(new Date(value)) : '--'
 }
-function duration(seconds) {
+export function duration(seconds) {
   const minutes = Math.floor(Number(seconds) / 60)
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
 }
@@ -25,22 +25,22 @@ export function formatAttendanceRows(records) {
 }
 export function presentAttendance(summary, records, profile, now) {
   const open = !!summary.open_session_id
-  const relevant = open ? { time_in: summary.open_time_in, time_out: null } : summary.started_today ? records[0] : null
+  const relevant = open ? { time_in: summary.open_time_in, time_out: null } : summary.starts_today ? summary.today_sessions.at(-1) : null
   const total = Number(summary.completed_seconds)
   const required = profile?.requiredHours
   const validRequired = Number.isFinite(required) && required > 0
   return {
     studentName: profile?.fullName || 'Student', date: formatManilaDate(now),
     status: open ? 'IN' : 'OUT',
-    statusNote: open ? `Since ${time(summary.open_time_in)}` : summary.started_today ? 'Attendance complete for today' : 'Not timed in today',
-    carriedOver: open && formatManilaDate(summary.open_time_in) !== formatManilaDate(now),
+    statusNote: open ? `Currently IN · Session ${summary.open_session_ordinal} · Since ${time(summary.open_time_in)}` : summary.next_action === 'none' ? 'Attendance completed for today' : summary.starts_today === 1 ? 'First session completed' : 'Ready to Time In',
+    carriedOver: open && formatManilaDate(summary.open_time_in) !== formatManilaDate(summary.manila_day + 'T00:00:00+08:00'),
     sessionDate: relevant ? formatManilaDate(relevant.time_in) : '',
     timeIn: time(relevant?.time_in), timeOut: time(relevant?.time_out),
-    todayHours: duration(summary.started_today && !open ? elapsed(relevant) : 0),
+    todayHours: duration(summary.today_completed_seconds),
     totalHours: duration(total), requiredHours: validRequired ? required : 'Unavailable',
     remainingHours: validRequired ? duration(Math.max(0, required * 3600 - total)) : 'Unavailable',
     progressPercent: validRequired ? Math.min(100, Math.floor(total / (required * 3600) * 10000) / 100) : null,
-    days: Number(summary.completed_sessions) + (open ? 1 : 0),
-    action: open ? 'Time Out' : 'Time In', completedToday: !open && summary.started_today,
+    days: Number(summary.days_present),
+    action: summary.next_action === 'time_out' ? 'Time Out' : summary.starts_today === 1 ? 'Time In Again' : 'Time In', completedToday: summary.next_action === 'none',
   }
 }

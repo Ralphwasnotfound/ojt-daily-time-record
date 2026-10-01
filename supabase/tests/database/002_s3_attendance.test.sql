@@ -79,7 +79,11 @@ select ok((select time_out >= (select stamp from before_out) and time_out <= clo
 select ok((select open_session_id is null and started_today and completed_sessions=1
   and completed_seconds=(select extract(epoch from time_out-time_in) from closed) from public.attendance_summary()),'closed duration is exact, not rounded');
 select throws_ok($$select public.attendance_time_out()$$,'P0001','NO_OPEN_ATTENDANCE','double Time Out rejected');
-select throws_ok($$select public.attendance_time_in()$$,'P0001','ALREADY_STARTED_TODAY','same-day new session rejected after closing');
+savepoint second_session;
+select lives_ok($$select public.attendance_time_in()$$,'second same-day start allowed');
+select lives_ok($$select public.attendance_time_out()$$,'second session closes');
+select throws_ok($$select public.attendance_time_in()$$,'P0001','DAILY_ATTENDANCE_LIMIT_REACHED','third start rejected');
+rollback to second_session;
 select throws_ok($$insert into public.attendance_sessions(student_uid,time_in) values(auth.uid(),now())$$,'42501',null,'direct INSERT denied');
 select throws_ok($$update public.attendance_sessions set time_out=now()$$,'42501',null,'direct UPDATE denied');
 select throws_ok($$delete from public.attendance_sessions$$,'42501',null,'direct DELETE denied');
@@ -106,8 +110,8 @@ insert into public.attendance_sessions(student_uid,time_in,time_out) values
 ('30000000-0000-4000-8000-000000000008','2026-12-31 15:59:59.999999Z','2026-12-31 16:00Z');
 select lives_ok($$insert into public.attendance_sessions(student_uid,time_in,time_out) values
 ('30000000-0000-4000-8000-000000000008','2026-12-31 16:00Z','2026-12-31 16:01Z')$$,'Manila year boundary permits next day within same UTC date');
-select throws_ok($$insert into public.attendance_sessions(student_uid,time_in,time_out) values
-('30000000-0000-4000-8000-000000000008','2027-01-01 00:00Z','2027-01-01 00:01Z')$$,'23505',null,'different UTC date remains same Manila day');
+select lives_ok($$insert into public.attendance_sessions(student_uid,time_in,time_out) values
+('30000000-0000-4000-8000-000000000008','2027-01-01 00:00Z','2027-01-01 00:01Z')$$,'second start on same Manila day allowed');
 insert into public.attendance_sessions(student_uid,time_in,time_out) values
 ('30000000-0000-4000-8000-000000000009','2026-01-01 00:00Z','2026-01-01 00:00:01.25Z'),
 ('30000000-0000-4000-8000-000000000009','2026-01-02 00:00Z','2026-01-02 00:00:01.75Z'),

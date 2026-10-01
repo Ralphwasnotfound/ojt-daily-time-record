@@ -265,6 +265,23 @@ test('S5 local activity RPCs and private Storage lifecycle',async t=>{
         module.namespace.createAdminApi(who.client,()=>who.id).activityStudents(),error=>error.message==='APPROVED_ADMIN_REQUIRED')
       await assert.rejects(module.namespace.createAdminApi(anonymous,()=>admin.id).activityStudents())
     })
+    await t.test('U3 activities remain attached to their exact session across a two-session day',async()=>{
+      const who=await fixture('U3','student','approved',admin.id)
+      const first=await success(who.client.rpc('attendance_time_in'))
+      const firstDraft=await prepare(who);await success(upload(who,firstDraft));const firstActivity=await success(create(who,firstDraft))
+      assert.equal(firstActivity.attendance_session_id,first.id)
+      const abandoned=await prepare(who);await success(upload(who,abandoned))
+      await success(who.client.rpc('attendance_time_out'))
+      await failure(who.client.rpc('activity_prepare',{request_id:randomUUID()}),'NO_OPEN_ATTENDANCE')
+      const second=await success(who.client.rpc('attendance_time_in'))
+      await failure(create(who,abandoned),'NO_OPEN_ATTENDANCE')
+      const secondDraft=await prepare(who);await success(upload(who,secondDraft));const secondActivity=await success(create(who,secondDraft))
+      assert.equal(secondActivity.attendance_session_id,second.id);assert.notEqual(second.id,first.id)
+      await success(who.client.rpc('attendance_time_out'))
+      await failure(who.client.rpc('activity_prepare',{request_id:randomUUID()}),'NO_OPEN_ATTENDANCE')
+      const edited=await success(edit(who,firstActivity,'After both sessions'))
+      assert.equal(edited.attendance_session_id,first.id);assert.equal(edited.created_at,firstActivity.created_at)
+    })
   } finally {
     // Only paths allocated by this test and UUIDs it created; trusted LOCAL cleanup.
     if(paths.size)await success(root.storage.from('activity-proofs').remove([...paths]))

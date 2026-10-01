@@ -10,7 +10,7 @@ import { renderToString } from '@vue/server-renderer'
 import { adminPageState, createAdminPage } from '../src/services/adminPageController.js'
 const auth = () => ({ provider:'supabase',user:{id:'admin'},profile:{uid:'admin',fullName:'Trusted Admin',email:'trusted@example.invalid',role:'admin',status:'approved'} })
 const defer = () => { let resolve; const promise = new Promise(r=>resolve=r); return {promise,resolve} }
-async function load(file, {state=auth(),client={},review=async()=>{},globals={},virtualHost=false}={}) {
+async function load(file, {state=auth(),client={},review=async()=>{},globals={},virtualHost=false,signals=null}={}) {
   const context=createContext({AbortController,setTimeout,clearTimeout,URL,Blob,console,...globals}),cache=new Map()
   const synthetic=exports=>new SyntheticModule(Object.keys(exports),function(){for(const [k,v]of Object.entries(exports))this.setExport(k,v)},{context})
   async function module(filename) {
@@ -20,6 +20,7 @@ async function load(file, {state=auth(),client={},review=async()=>{},globals={},
     if(filename.endsWith('.vue')) { const {descriptor}=parse(source);const compiled=compileTemplate({source:descriptor.template.content,filename,id:'s7-test'});assert.deepEqual(compiled.errors,[]);source=descriptor.script.content+'\n'+compiled.code }
     const m=new SourceTextModule(source,{context})
     await m.link(async specifier=>{
+      if(signals && specifier.endsWith('adminAttendanceSignals.js'))return synthetic({adminAttendanceSignals:signals})
       if(specifier==='vue')return synthetic(virtualHost ? {...vue,vModelText:{},vModelSelect:{}} : vue)
       if(specifier==='lucide-vue-next')return synthetic(icons)
       if(/\/auth(?:\.js)?$/.test(specifier))return synthetic({authState:state})
@@ -309,12 +310,12 @@ test('Logs makes submission-date and unedited inclusion semantics explicit',asyn
 })
 
 // U2: exercise the actual disclosure tree, bounded requests and cleanup.
-async function mountU2(details=false, {gate=null, photoGate=null}={}) {
+async function mountU2(details=false, {gate=null, photoGate=null, signals=null}={}) {
   const state=vue.reactive(auth()),calls=[],revoked=[],listeners=new Set()
   const rows=[{...activity,id:'a',student_uid:'uid-a',full_name:'Same Name'},{...activity,id:'b',student_uid:'uid-b',full_name:'Same Name'},{...activity,id:'c',student_uid:'uid-a',full_name:'Same Name'}]
   const client={rpc(name,args){calls.push([name,args]);return {retry(){return this},abortSignal(){return name==='admin_activities' && gate ? gate.promise : {data:name==='admin_students'?[student]:name==='admin_activity_revisions'?[{...activity,version_at:activity.created_at,current_revision:3}]:details?Array.from({length:args.page_size},(_,i)=>({...activity,id:`${args.before_id?'next':'first'}-${i}`,student_uid:args.target_uid})):rows,error:null}}}},storage:{from(){return {download(){calls.push(['download']);return photoGate?photoGate.promise:{data:new Blob(['x'],{type:'image/png'}),error:null}}}}}}
   class Image {set src(value){this.naturalWidth=1;this.naturalHeight=1;this.onload()}}
-  const {default:component}=await load(details?'src/views/admin/StudentDetailsView.vue':'src/components/AdminRecentActivities.vue',{state,client,virtualHost:true,globals:{Image,window:{addEventListener:(e,fn)=>listeners.add(fn),removeEventListener:(e,fn)=>listeners.delete(fn)},URL:{createObjectURL:()=> 'blob:u2',revokeObjectURL:url=>revoked.push(url)}}})
+  const {default:component}=await load(details?'src/views/admin/StudentDetailsView.vue':'src/components/AdminRecentActivities.vue',{state,client,signals,virtualHost:true,globals:{Image,window:{addEventListener:(e,fn)=>listeners.add(fn),removeEventListener:(e,fn)=>listeners.delete(fn)},URL:{createObjectURL:()=> 'blob:u2',revokeObjectURL:url=>revoked.push(url)}}})
   const {renderer,root}=testRenderer(),app=renderer.createApp(component,details?{id:'student'}:{})
   app.component('RouterLink',{render(){return vue.h('a',{},this.$slots.default?.())}})
   const instance=app.mount(root);await settle()
@@ -381,4 +382,32 @@ test('U2 compact components preserve wrapping and touch target structure',async(
  for(const file of ['ActivityDisclosure','AdminRecentActivities','AdminActivityCard']){const source=await readFile(`src/components/${file}.vue`,'utf8');assert.match(source,/min-w-0/);assert.doesNotMatch(source,/v-show|<script setup/)}
  const shell=await readFile('src/components/ActivityDisclosure.vue','utf8');assert.match(shell,/min-h-11/);assert.match(shell,/focus-visible/)
  const card=await readFile('src/components/AdminActivityCard.vue','utf8');assert.match(card,/whitespace-pre-wrap break-words/)
+})
+
+
+test('U3 grouped attendance displays both sessions and cross-midnight dates without activity changes',async()=>{
+ const html=await render('src/components/AttendanceDays.vue',{days:[{start_day:'2026-10-01',completed_seconds:28800,sessions:[{...activity,time_in:'2026-10-01T00:00Z',time_out:'2026-10-01T04:00Z',session_ordinal:1},{...activity,id:'second',time_in:'2026-10-01T13:00Z',time_out:'2026-10-01T17:00Z',session_ordinal:2}]}]},{identity:'admin',load:async()=>({days:[]})})
+ for(const text of ['Session 1','Session 2','October 2, 2026','8h 00m','15 start-days per page'])assert.ok(html.includes(text))
+ const source=await readFile('src/views/admin/StudentDetailsView.vue','utf8');assert.match(source,/target_uid: this.id/);assert.match(source,/:page-size="5"/)
+})
+test('U3 day history sends bounded cursor/date requests, replaces pages and ignores late responses',async()=>{
+ const {default:c}=await load('src/components/AttendanceDays.vue'),calls=[]
+ const instance=vm(c,{identity:'admin',load:async args=>{calls.push(args);return {days:[{start_day:args.before_day?'2026-09-01':'2026-10-01'}],next_before_day:'2026-10-01'}}})
+ await instance.reset();await instance.read(1);assert.equal(calls[1].before_day,'2026-10-01');assert.equal(calls[1].day_limit,15);assert.equal(instance.days.length,1)
+ instance.day='2026-08-01';await instance.reset();assert.equal(calls.at(-1).on_day,'2026-08-01');assert.equal(calls.at(-1).before_day,null)
+ const gate=defer();instance.load=()=>gate.promise;const pending=instance.refresh();/* unmount invalidates the request generation */
+ instance.generation++;gate.resolve({days:[{start_day:'stale'}]});await pending;assert.equal(instance.days.length,0)
+})
+
+for(const details of [false,true])test(`U3 background reconciliation preserves ${details?'Details page/filter':'Dashboard disclosure'} and loaded proof`,async()=>{
+ const callbacks=new Set(),signals={register(fn){callbacks.add(fn);return ()=>callbacks.delete(fn)}}
+ const f=await mountU2(details,{signals})
+ if(details){f.instance.activeTab='activities';await settle();const records=f.find('AdminRecords');records.category='IT Support';await settle();await records.controller.next();await settle()}
+ else {f.instance.toggle('uid-a',true);await settle()}
+ const proof=f.find('AdminActivityProof');await proof.show();const downloads=f.calls.filter(c=>c[0]==='download').length
+ await Promise.all([...callbacks].map(fn=>fn()));await settle()
+ assert.equal(proof.url,'blob:u2');assert.equal(f.calls.filter(c=>c[0]==='download').length,downloads)
+ if(details){assert.equal(f.find('AdminRecords').state.page,1);assert.equal(f.find('AdminRecords').category,'IT Support')}
+ else assert.equal(f.instance.opened,'uid-a')
+ f.app.unmount();assert.equal(callbacks.size,0)
 })

@@ -1,4 +1,6 @@
 <script>
+import { adminAttendanceSignals } from '../services/adminAttendanceSignals.js'
+
 import { RefreshCw } from 'lucide-vue-next'
 import ActivityDisclosure from './ActivityDisclosure.vue'
 import AdminActivityCard from './AdminActivityCard.vue'
@@ -8,7 +10,7 @@ import { activityDate, activityTime } from '../services/supabaseActivityData.js'
 export default {
   name: 'AdminRecentActivities',
   components: { ActivityDisclosure, AdminActivityCard, RefreshCw },
-  data() { return { state: adminPageState(), controller: null, opened: null } },
+  data() { return { state: adminPageState(), controller: null, removeAttendanceSignal: null, opened: null } },
   computed: {
     identity() { return adminKey() },
     groups() {
@@ -21,8 +23,8 @@ export default {
     },
   },
   watch: { identity() { this.start() } },
-  mounted() { this.start(); window.addEventListener('focus', this.refresh) },
-  beforeUnmount() { this.controller?.stop(); window.removeEventListener('focus', this.refresh) },
+  mounted() { this.removeAttendanceSignal = adminAttendanceSignals.register(() => this.controller?.reload()); this.start(); window.addEventListener('focus', this.refresh) },
+  beforeUnmount() { this.removeAttendanceSignal?.(); this.controller?.stop(); window.removeEventListener('focus', this.refresh) },
   methods: {
     activityDate, activityTime,
     start() {

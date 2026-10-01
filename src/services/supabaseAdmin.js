@@ -28,6 +28,7 @@ export function createAdminApi(client, identity) {
     students: (args = {}) => rpc('admin_students', args),
     activities: (args = {}) => rpc('admin_activities', args),
     activityStudents: (args = {}) => rpc('admin_activity_students', args),
+    attendanceDays: (args = {}) => rpc('admin_attendance_days', args),
     attendance: (args = {}) => rpc('admin_attendance', args),
     revisions: (args = {}) => rpc('admin_activity_revisions', args),
     download: path => request(signal => client.storage.from('activity-proofs').download(path, {}, { signal, cache: 'no-store' })),

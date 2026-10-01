@@ -1,4 +1,6 @@
 <script>
+import { adminAttendanceSignals } from '../services/adminAttendanceSignals.js'
+
 import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-vue-next'
 import AdminRecords from './AdminRecords.vue'
 import { adminApi, adminKey } from '../services/supabaseAdmin.js'
@@ -7,7 +9,7 @@ import { ACTIVITY_CATEGORIES, activityDate, activityTime } from '../services/sup
 export default {
   name: 'AdminActivityStudents', components: { AdminRecords, ChevronDown, ChevronUp, RefreshCw },
   props: { viewMode: { type: String, default: 'current' } },
-  data() { return { state: adminPageState(), controller: null, opened: null, search: '', category: '', attendance: '', day: '', categories: ACTIVITY_CATEGORIES } },
+  data() { return { state: adminPageState(), controller: null, removeAttendanceSignal: null, opened: null, search: '', category: '', attendance: '', day: '', categories: ACTIVITY_CATEGORIES } },
   computed: {
     identity() { return adminKey() },
     filters() { return { search: this.search, category: this.category, attendance: this.attendance, day: this.day } },
@@ -18,8 +20,8 @@ export default {
     identity() { this.search = ''; this.category = ''; this.attendance = ''; this.day = ''; this.start() },
     queryKey() { this.start() },
   },
-  mounted() { this.start(); window.addEventListener('focus', this.refresh) },
-  beforeUnmount() { this.controller?.stop(); this.opened = null; window.removeEventListener('focus', this.refresh) },
+  mounted() { if (this.viewMode === 'current') this.removeAttendanceSignal = adminAttendanceSignals.register(() => this.controller?.reload()); this.start(); window.addEventListener('focus', this.refresh) },
+  beforeUnmount() { this.removeAttendanceSignal?.(); this.controller?.stop(); this.opened = null; window.removeEventListener('focus', this.refresh) },
   methods: {
     activityDate, activityTime,
     start() { this.controller?.stop(); this.opened = null; this.state = adminPageState(); this.controller = createAdminPage(this.state, this.load, () => this.identity); return this.controller.refresh() },

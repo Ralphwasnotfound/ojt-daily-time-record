@@ -45,7 +45,7 @@ enabled = false
 enabled = false
 
 [realtime]
-enabled = false
+enabled = true
 
 [analytics]
 enabled = false

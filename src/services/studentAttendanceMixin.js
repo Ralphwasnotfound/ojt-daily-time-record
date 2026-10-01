@@ -1,3 +1,4 @@
+import { getAttendanceDays } from './supabaseAttendance.js'
 import { authState, refreshProfile } from './auth'
 import { accountDestination } from './accountPolicy'
 import { formatManilaDate, formatAttendanceRows, presentAttendance } from './supabaseAttendancePresentation.js'
@@ -58,6 +59,7 @@ export default {
     window.removeEventListener('online', this.refreshAttendance)
   },
   methods: {
+    loadAttendanceDays(args) { return getAttendanceDays(args) },
     async startAttendance() {
       this.attendanceController?.stop()
       this.attendanceController = null

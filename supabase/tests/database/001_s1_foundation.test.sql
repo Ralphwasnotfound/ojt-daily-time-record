@@ -55,19 +55,23 @@ insert into public.attendance_sessions(id,student_uid,time_in,time_out) values
  ('10000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000002','2026-09-29 00:00Z',null),
  ('10000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000005','2026-09-29 00:00Z',null);
 select throws_ok($$insert into public.attendance_sessions(student_uid,time_in) values ('00000000-0000-4000-8000-000000000002','2026-10-01 00:00Z')$$, '23505', null, 'open constraint independent of day');
-select throws_ok($$insert into public.attendance_sessions(student_uid,time_in,time_out) values ('00000000-0000-4000-8000-000000000002','2026-09-28 10:00Z','2026-09-28 11:00Z')$$, '23505', null, 'same Manila start date denied after completion');
+savepoint second_start;
+select lives_ok($$insert into public.attendance_sessions(student_uid,time_in,time_out) values ('00000000-0000-4000-8000-000000000002','2026-09-28 10:00Z','2026-09-28 11:00Z')$$, 'same Manila start date allowed after completion');
+rollback to second_start;
 select throws_ok($$insert into public.attendance_sessions(student_uid,time_in,time_out) values ('00000000-0000-4000-8000-000000000005','2026-08-01 10:00Z','2026-08-01 09:00Z')$$, '23514', null, 'negative interval denied');
 set local timezone = 'America/Los_Angeles';
 select lives_ok($$insert into public.attendance_sessions(student_uid,time_in,time_out) values ('00000000-0000-4000-8000-000000000005','2026-12-31 15:59:59Z','2026-12-31 16:00Z'), ('00000000-0000-4000-8000-000000000005','2026-12-31 16:00Z','2026-12-31 17:00Z')$$, 'Manila midnight independent of DB timezone');
-select throws_ok($$insert into public.attendance_sessions(student_uid,time_in,time_out) values ('00000000-0000-4000-8000-000000000005','2027-01-01 01:00Z','2027-01-01 02:00Z')$$, '23505', null, 'different UTC dates can be same Manila day');
+savepoint boundary_start;
+select lives_ok($$insert into public.attendance_sessions(student_uid,time_in,time_out) values ('00000000-0000-4000-8000-000000000005','2027-01-01 01:00Z','2027-01-01 02:00Z')$$, 'second start can share Manila day across UTC dates');
+rollback to boundary_start;
 set local timezone = 'UTC';
 savepoint future_policy;
-drop index public.attendance_one_start_per_manila_day_idx;
+-- U3 has replaced the daily unique index with a nonunique lookup.
 select lives_ok($$insert into public.attendance_sessions(student_uid,time_in,time_out) values ('00000000-0000-4000-8000-000000000002','2026-09-28 10:00Z','2026-09-28 11:00Z')$$, 'dropping daily index permits multiple completed sessions');
 select throws_ok($$insert into public.attendance_sessions(student_uid,time_in) values ('00000000-0000-4000-8000-000000000002','2026-10-01 00:00Z')$$, '23505', null, 'one-open constraint survives daily policy removal');
 -- Restore index without rolling back pgTAP's test counter.
 delete from public.attendance_sessions where student_uid='00000000-0000-4000-8000-000000000002' and time_in='2026-09-28 10:00Z';
-create unique index attendance_one_start_per_manila_day_idx on public.attendance_sessions (student_uid, ((time_in at time zone 'Asia/Manila')::date));
+-- One-open uniqueness is unchanged.
 release savepoint future_policy;
 
 create function pg_temp.activity_fixture(p_id integer, patch jsonb default '{}') returns void language plpgsql as $$

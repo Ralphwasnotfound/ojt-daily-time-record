@@ -16,18 +16,12 @@ export function createStudentAttendanceController(model, studentId, onAccessErro
       if (!current(version)) return
       const state = await api.getAttendanceSummary()
       if (!current(version)) return
-      const records = await api.getAttendanceHistory(studentId)
-      if (!current(version)) return
-      const open = records.filter(row => row.time_out === null)
-      // Separate REST reads can straddle another tab's mutation. Fail closed and
-      // ask for a refresh rather than present mismatched details/actions.
-      if (records.some(row => row.student_uid !== studentId) ||
+      // Summary is a single authoritative snapshot; do not fetch all history to
+      // infer action eligibility or compare totals against a paginated list.
+      const records = state.today_sessions
+      if (!Array.isArray(records) || records.some(row => row.student_uid !== studentId) ||
           new Set(records.map(row => row.id)).size !== records.length ||
-          records.length !== Number(state.completed_sessions) + (state.open_session_id ? 1 : 0) ||
-          open.length !== (state.open_session_id ? 1 : 0) ||
-          (open.length && (open[0].id !== state.open_session_id || open[0].time_in !== state.open_time_in))) {
-        throw new Error('ATTENDANCE_CHANGED_DURING_REFRESH')
-      }
+          !['time_in','time_out','none'].includes(state.next_action)) throw new Error('INVALID_ATTENDANCE_SUMMARY')
       model.records = records
       model.state = state
       model.ready = true
@@ -53,7 +47,7 @@ export function createStudentAttendanceController(model, studentId, onAccessErro
     },
     async submit() {
       if (stopped || model.busy || !model.ready ||
-          (!model.state.open_session_id && model.state.started_today)) return
+          !['time_in','time_out'].includes(model.state.next_action)) return
       const version = ++revision
       const closing = !!model.state.open_session_id
       model.busy = true

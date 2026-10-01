@@ -1,9 +1,15 @@
 <script>
+import { adminKey } from '../services/supabaseAdmin.js'
+import { adminAttendanceSignals } from '../services/adminAttendanceSignals.js'
 import WorkspaceLayout from '../components/WorkspaceLayout.vue'
 
 export default {
   name: 'AdminLayout',
   components: { WorkspaceLayout },
+  computed: { attendanceIdentity() { return adminKey() } },
+  watch: { attendanceIdentity() { adminAttendanceSignals.start() } },
+  mounted() { adminAttendanceSignals.start(); window.addEventListener('online', adminAttendanceSignals.signal) },
+  beforeUnmount() { adminAttendanceSignals.stop(); window.removeEventListener('online', adminAttendanceSignals.signal) },
   data() {
     return {
       navigation: [

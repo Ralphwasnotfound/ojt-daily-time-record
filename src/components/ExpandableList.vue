@@ -7,6 +7,7 @@ export default {
   props: {
     items: { type: Array, required: true },
     disabled: Boolean,
+    preserveOnUpdate: Boolean,
   },
   data() {
     return { expanded: false }
@@ -21,7 +22,10 @@ export default {
   },
   watch: {
     // Filtered arrays change when search/filter inputs change.
-    items() { this.expanded = false },
+    items(next, previous) {
+      if (this.preserveOnUpdate && previous && next.length === previous.length && next.every((row, i) => row.id === previous[i].id)) return
+      this.expanded = false
+    },
   },
 }
 </script>

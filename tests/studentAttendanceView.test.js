@@ -10,7 +10,7 @@ import * as icons from 'lucide-vue-next'
 import * as presentation from '../src/services/supabaseAttendancePresentation.js'
 
 const profile = { uid: 'alice', fullName: 'Real Student', role: 'student', status: 'approved', requiredHours: 486 }
-const model = () => ({ ready: false, loading: true, busy: false, error: '', notice: '', state: { open_session_id: null, open_time_in: null, started_today: false, completed_seconds: 0, completed_sessions: 0 }, records: [] })
+const model = () => ({ ready: false, loading: true, busy: false, error: '', notice: '', state: { open_session_id: null, open_time_in: null, started_today: false, completed_seconds: 0, completed_sessions: 0,manila_day:"2026-09-29",starts_today:0,next_action:"time_in",today_sessions:[],today_completed_seconds:0,days_present:0 }, records: [] })
 export async function loadComponent(filename) {
   const cache = new Map()
   function synthetic(exports) {
@@ -38,7 +38,7 @@ export async function loadComponent(filename) {
       if (specifier.endsWith('supabaseAttendanceController.js')) return synthetic({ attendanceUiState: model, createStudentAttendanceController: () => {} })
       if (specifier.endsWith('supabaseAttendancePresentation.js')) return synthetic(presentation)
       if (specifier.endsWith('supabaseActivities.js')) return synthetic({ activityApi: {}, activityAccountKey: () => 'alice', approvedActivityStudent: () => true })
-      if (specifier.endsWith('supabaseAttendance.js')) return synthetic({ getAttendanceSummary: async () => ({ open_session_id: null }) })
+      if (specifier.endsWith('supabaseAttendance.js')) return synthetic({ getAttendanceDays: async () => ({days:[],next_before_day:null}), getAttendanceSummary: async () => ({ open_session_id: null }) })
       let target = path.resolve(path.dirname(file), specifier)
       if (!path.extname(target)) target += '.js'
       return load(target)
@@ -73,7 +73,7 @@ test('student views render explicit loading and real empty attendance without ol
     if (name === 'AttendanceView') {
       assert.match(empty, /Time In/)
       assert.match(empty, /<button type="button" aria-busy="false"/)
-      assert.match(empty, /No attendance recorded yet/)
+      assert.match(empty, /No attendance recorded for this selection/)
       assert.doesNotMatch(empty, /Captured:/)
     }
     if (name === 'StudentDashboard') assert.match(empty, /Real Student/)
@@ -84,8 +84,9 @@ test('student views render explicit loading and real empty attendance without ol
   }
 })
 test('completed attendance disables another Time In and renders actual duration', async () => {
-  const state = { open_session_id: null, open_time_in: null, started_today: true, completed_seconds: 3600, completed_sessions: 1 }
+  const state = { open_session_id: null, open_time_in: null, started_today: true, completed_seconds: 3600, completed_sessions: 1,manila_day:"2026-09-29",starts_today:2,next_action:"none",today_sessions:[],today_completed_seconds:3600,days_present:1 }
   const record = { id: 'real', student_uid: 'alice', time_in: '2026-09-29T00:00:00Z', time_out: '2026-09-29T01:00:00Z' }
+  state.today_sessions=[record]
   const html = await renderStudentView('AttendanceView', { ...model(), ready: true, loading: false, state, records: [record] })
   assert.match(html, /<button[^>]*disabled[^>]*>[\s\S]*?Completed for today/)
   assert.match(html, /1h 00m/)
@@ -95,10 +96,11 @@ test('completed attendance disables another Time In and renders actual duration'
 
 test('open Supabase session renders enabled Time Out and real server timestamp', async () => {
   const record = { id: 'open', student_uid: 'alice', time_in: '2026-09-29T00:02:00Z', time_out: null }
-  const state = { open_session_id: 'open', open_time_in: record.time_in, started_today: true, completed_seconds: 0, completed_sessions: 0 }
+  const state = { open_session_id: 'open', open_time_in: record.time_in, started_today: true, completed_seconds: 0, completed_sessions: 0,manila_day:"2026-09-29",starts_today:1,next_action:"time_out",today_sessions:[],open_session_ordinal:1,today_completed_seconds:0,days_present:1 }
+  state.today_sessions=[record]
   const html = await renderStudentView('AttendanceView', { ...model(), ready: true, loading: false, state, records: [record] })
   assert.match(html, /CURRENTLY IN/)
   assert.match(html, /8:02 AM/)
   assert.match(html, /<button type="button" aria-busy="false"[^>]*>[\s\S]*?Time Out<\/button>/)
-  assert.match(html, /Not completed/)
+  assert.match(html, /Session 1/)
 })

@@ -97,10 +97,17 @@ test('local attendance writes serialize on the profile row', async t => {
       assert.equal(closed.time_in,opened.time_in)
       assert.equal(await successful(`select time_out >= to_timestamp(${releasedAt}) from public.attendance_sessions where id='${closed.id}';`),'t')
     })
-    await t.test('concurrent retries after closing cannot bypass the Manila-day policy', async () => {
+    await t.test('concurrent second starts serialize, then third starts fail', async () => {
+      const second=await withProfileLock(student,label,()=>Promise.all([rpc(student,'attendance_time_in',label+'-a'),rpc(student,'attendance_time_in',label+'-b')]))
+      assert.equal(second.results.filter(r=>r.code===0).length,1)
+      assert.match(second.results.find(r=>r.code!==0).errors,/ALREADY_TIMED_IN/)
+      const race=await withProfileLock(student,label,()=>Promise.all([rpc(student,'attendance_time_in',label+'-a'),rpc(student,'attendance_time_out',label+'-b')]))
+      assert.equal(race.results[1].code,0)
+      assert.match(race.results[0].errors,/ALREADY_TIMED_IN|DAILY_ATTENDANCE_LIMIT_REACHED/)
+      assert.match((await rpc(student,'attendance_time_out',label+'-a')).errors,/NO_OPEN_ATTENDANCE/)
       const results=await Promise.all([rpc(student,'attendance_time_in',label+'-a'),rpc(student,'attendance_time_in',label+'-b')])
-      for (const result of results) { assert.notEqual(result.code,0); assert.match(result.errors,/ALREADY_STARTED_TODAY/) }
-      assert.equal(await successful(`select count(*) from public.attendance_sessions where student_uid='${student}';`),'1')
+      for (const result of results) { assert.notEqual(result.code,0); assert.match(result.errors,/DAILY_ATTENDANCE_LIMIT_REACHED/) }
+      assert.equal(await successful(`select count(*) from public.attendance_sessions where student_uid='${student}';`),'2')
     })
     await t.test('approval revoked while requests wait is rechecked before either write', async () => {
       await successful(`insert into public.attendance_sessions(student_uid,time_in) values ('${revoked}',clock_timestamp()-interval '1 day');`)

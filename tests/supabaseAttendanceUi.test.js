@@ -18,11 +18,11 @@ async function load(name, imports) {
 }
 const service = await load('supabaseAttendance', { '../supabase/supabase.js': { supabase: null } })
 const { attendanceUiState, createStudentAttendanceController } = await load('supabaseAttendanceController', { './supabaseAttendance.js': service })
-const fresh = () => ({ open_session_id: null, open_time_in: null, started_today: false, completed_seconds: 0, completed_sessions: 0 })
+const fresh = () => ({ open_session_id: null, open_time_in: null, started_today: false, completed_seconds: 0, completed_sessions: 0, manila_day:'2026-09-30',starts_today:0,next_action:'time_in',today_sessions:[],open_session_ordinal:null,today_completed_seconds:0,days_present:0 })
 const row = { id: 'session', student_uid: 'alice', time_in: '2026-09-30T00:02:00+00:00', time_out: null }
 const closed = { ...row, time_out: '2026-09-30T01:02:00+00:00' }
-const opened = () => ({ ...fresh(), open_session_id: row.id, open_time_in: row.time_in, started_today: true })
-const completed = () => ({ ...fresh(), started_today: true, completed_seconds: 3600, completed_sessions: 1 })
+const opened = () => ({ ...fresh(), open_session_id: row.id, open_time_in: row.time_in, started_today: true, starts_today:1,next_action:'time_out',today_sessions:[row],open_session_ordinal:1,days_present:1 })
+const completed = () => ({ ...fresh(), started_today: true, completed_seconds: 3600, completed_sessions: 2, starts_today:2,next_action:'none',today_sessions:[closed],today_completed_seconds:3600,days_present:1 })
 const profile = { fullName: 'Student', requiredHours: 486 }
 const display = model => presentAttendance(model.state, model.records, profile, Date.parse('2026-09-30T04:00:00Z'))
 function deferred() { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b }); return { promise, resolve, reject } }
@@ -32,7 +32,7 @@ function fixture(state = fresh(), records = []) {
   let access = 0
   const api = {
     waitForAttendanceWrite: async () => {},
-    getAttendanceSummary: async () => { calls.push('summary'); return state },
+    getAttendanceSummary: async () => { calls.push('summary'); return {...state,today_sessions:records} },
     getAttendanceHistory: async uid => { assert.equal(uid, 'alice'); calls.push('history'); return records },
     timeIn: async () => { calls.push('in'); state=opened(); records=[row]; return row },
     timeOut: async () => { calls.push('out'); state=completed(); records=[closed]; return closed },
@@ -135,7 +135,7 @@ test('remount waits for an earlier view write before requesting history', async 
   gate.resolve(); await loading; assert.equal(display(f.model).status,'IN')
 })
 test('cross-user rows and inconsistent snapshots fail closed', async () => {
-  for (const records of [[{...row,student_uid:'bob'}],[],[row,row]]) {
+  for (const records of [[{...row,student_uid:'bob'}],[row,row]]) {
     const f=fixture(opened(),records); await f.controller.start(); assert.equal(f.model.ready,false)
   }
 })
@@ -150,7 +150,7 @@ test('summary total is authoritative; history is not summed for total hours', ()
 })
 test('browser date does not override started_today policy; overnight remains open', () => {
   assert.equal(presentAttendance(completed(),[closed],profile,Date.parse('2030-01-01')).completedToday,true)
-  const result=presentAttendance({...opened(),started_today:false},[row],profile,Date.parse('2026-10-01T01:00Z'))
+  const result=presentAttendance({...opened(),started_today:false,manila_day:'2026-10-01'},[row],profile,Date.parse('2026-10-01T01:00Z'))
   assert.equal(result.action,'Time Out'); assert.equal(result.carriedOver,true)
   assert.match(formatAttendanceRows([{...row,time_out:'2026-10-01T00:00:00Z'}])[0].timeOut,/October 1, 2026/)
 })
@@ -162,20 +162,17 @@ test('RPC service sends no identity/time arguments and prevents parallel writes'
   gate.resolve({data:row,error:null}); assert.deepEqual(await first,row)
   assert.deepEqual(calls,[['attendance_time_in']])
 })
-test('history service pages through RLS reads using stable ordering', async () => {
-  const ranges=[],filters=[],orders=[]
-  const query={select(){return this},eq(...args){filters.push(args);return this},order(...args){orders.push(args);return this},
-    range(a,b){ranges.push([a,b]);this.offset=a;return this},retry(){return this},
-    async abortSignal(){return {data:this.offset===0?Array.from({length:200},(_,i)=>({...row,id:String(i)})):[closed],error:null}}}
-  const api=await load('supabaseAttendance',{'../supabase/supabase.js':{supabase:{from(name){assert.equal(name,'attendance_sessions');return query}}}})
-  assert.equal((await api.getAttendanceHistory('alice')).length,201)
-  assert.deepEqual(ranges,[[0,199],[200,399]]); assert.deepEqual(filters[0],['student_uid','alice']); assert.equal(orders[0][0],'time_in'); assert.equal(orders[1][0],'id')
+test('history requests one bounded server day page with date/cursor filters', async () => {
+ const calls=[];const api=await load('supabaseAttendance',{'../supabase/supabase.js':{supabase:{rpc(name,args){calls.push([name,args]);return {retry(){return this},abortSignal(){return {data:{days:[],next_before_day:null},error:null}}}}}}})
+ await api.getAttendanceDays({day_limit:15,before_day:'2026-09-30',on_day:'2026-09-01'})
+ assert.equal(calls.length,1);assert.equal(calls[0][0],'attendance_days');assert.equal(calls[0][1].day_limit,15);assert.equal(calls[0][1].on_day,'2026-09-01')
 })
 
 test('active Options API mixin loads Supabase for an approved student and resets on account change', async () => {
   const authState={provider:'supabase',user:{id:'alice'},profile:{uid:'alice',role:'student',status:'approved'}}
   let starts=0,stops=0
   const { default:mixin }=await load('studentAttendanceMixin',{
+    './supabaseAttendance.js':{getAttendanceDays:async()=>({days:[]})},
     './auth':{authState,refreshProfile:async()=>{}},
     './accountPolicy':{accountDestination:()=>'/student'},
     './supabaseAttendancePresentation.js':presentation,
@@ -203,4 +200,12 @@ test('active student attendance modules never import Firebase attendance referen
     assert.doesNotMatch(source, /from\s+['"][^'"]*(?:firebase|\/attendance\.js|\/attendancePresentation\.js|\/studentAttendanceController\.js)|import\(['"][^'"]*firebase/)
     assert.doesNotMatch(source,/localStorage|\.insert\(|\.update\(|\.delete\(/)
   }
+})
+
+for (const [starts,open,action,label] of [[0,false,'time_in','Time In'],[1,true,'time_out','Time Out'],[1,false,'time_in','Time In Again'],[2,true,'time_out','Time Out'],[2,false,'none','Time In']]) test(`U3 state starts=${starts} open=${open}`,()=>{
+ const state={...fresh(),starts_today:starts,next_action:action,today_sessions:starts?[closed]:[],open_session_id:open?'session':null,open_time_in:open?row.time_in:null,open_session_ordinal:starts,today_completed_seconds:starts===2?28800:0,days_present:starts?1:0}
+ const result=presentAttendance(state,[],profile,Date.now());assert.equal(result.action,label);assert.equal(result.completedToday,action==='none');assert.equal(result.days,starts?1:0);if(starts===2)assert.equal(result.todayHours,'8h 00m')
+})
+test('U3 first closed session allows a second Time In without history read',async()=>{
+ const f=fixture({...completed(),starts_today:1,next_action:'time_in'},[closed]);await f.controller.start();await f.controller.submit();assert.ok(f.calls.includes('in'));assert.ok(!f.calls.includes('history'))
 })

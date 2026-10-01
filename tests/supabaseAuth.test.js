@@ -343,7 +343,7 @@ test('S4 attendance remains restricted to approved Supabase students', async () 
     ? { authState: { provider: 'supabase', user, profile: { ...student, status: 'approved' } }, refreshProfile: async () => {} }
     : specifier === './accountPolicy' ? policy
     : specifier.includes('Controller') ? { attendanceUiState: () => ({}), createStudentAttendanceController: () => { started++ } }
-    : { displayTimestamp() {}, formatManilaDate() {}, formatAttendanceRows() {}, presentAttendance() {} }))
+    : { getAttendanceDays() {}, displayTimestamp() {}, formatManilaDate() {}, formatAttendanceRows() {}, presentAttendance() {} }))
   await module.evaluate()
   const mixin = module.namespace.default
   const vm = { attendanceController: { stop() {} }, attendanceEligible: false }
