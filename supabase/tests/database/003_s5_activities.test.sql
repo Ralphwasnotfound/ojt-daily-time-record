@@ -1,4 +1,5 @@
 begin;
+\ir ../helpers/legacy-attendance.inc
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions,pg_temp;
 select no_plan();
@@ -41,7 +42,7 @@ select throws_ok($$select public.activity_create(gen_random_uuid(),'Other','text
 select throws_ok($$select public.activity_edit(gen_random_uuid(),0,'Other','text')$$,'42501','APPROVED_STUDENT_REQUIRED','admin edit denied');
 select set_config('request.jwt.claim.sub','50000000-0000-4000-8000-000000000002',true);
 select throws_ok($$select public.activity_prepare(gen_random_uuid())$$,'P0001','NO_OPEN_ATTENDANCE','OUT student cannot prepare creation');
-select public.attendance_time_in();
+select pg_temp.legacy_time_in();
 create temp table draft as select * from public.activity_prepare('51000000-0000-4000-8000-000000000001');
 select is((select count(*)::integer from draft),1,'approved student prepares one upload');
 select ok((select photo_path=auth.uid()::text||'/'||activity_id::text||'/proof' from draft),'server canonical path and ID');
@@ -91,7 +92,7 @@ select is((select count(*)::integer from storage.objects where bucket_id='activi
 
 select set_config('request.jwt.claim.sub','50000000-0000-4000-8000-000000000002',true);
 create temp table unfinished as select * from public.activity_prepare(gen_random_uuid());
-select public.attendance_time_out();
+select pg_temp.legacy_time_out();
 select throws_ok($$select public.activity_create((select upload_id from unfinished),'Other','late')$$,'P0001','NO_OPEN_ATTENDANCE','Time Out during upload prevents late creation');
 create temp table edited as select * from public.activity_edit((select id from created),0,'Documentation','  Updated résumé 日本語  ');
 select ok((select e.created_at=c.created_at and e.student_uid=c.student_uid and e.attendance_session_id=c.attendance_session_id from edited e cross join created c),'edit preserves original identity/session/created_at');

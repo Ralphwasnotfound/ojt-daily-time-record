@@ -1,4 +1,5 @@
 begin;
+\ir ../helpers/legacy-attendance.inc
 set local search_path=public,extensions,pg_temp;
 select no_plan();
 insert into auth.users(id,email,email_confirmed_at)
@@ -59,9 +60,9 @@ select is((select status from public.profiles where student_id='U11-A'),'approve
 select public.admin_set_authorized_student_active('U11-B',false);
 select lives_ok($$select public.review_student('99100000-0000-4000-8000-000000000003','rejected')$$,'reject remains available while ineligible');
 select set_config('request.jwt.claim.sub','99100000-0000-4000-8000-000000000002',true);
-select lives_ok($$select public.attendance_time_in()$$,'approved inactive-roster student still times in');
+select lives_ok($$select pg_temp.legacy_time_in()$$,'approved inactive-roster student still times in');
 select lives_ok($$select public.activity_prepare('99100000-0000-4000-8000-000000000099',null)$$,'approved inactive-roster student may prepare activity');
-select lives_ok($$select public.attendance_time_out()$$,'approved inactive-roster student still times out');
+select lives_ok($$select pg_temp.legacy_time_out()$$,'approved inactive-roster student still times out');
 reset role;
 insert into private.authorized_students(student_id,expected_name) values('U11-LEGACY','Ambiguous Legacy');
 set local role authenticated;

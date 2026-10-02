@@ -45,39 +45,18 @@ export function createStudentAttendanceController(model, studentId, onAccessErro
       model.notice = ''
       try { await reconcile(version) } finally { refreshing = false }
     },
-    async submit() {
-      if (stopped || model.busy || !model.ready ||
-          !['time_in','time_out'].includes(model.state.next_action)) return
+    async confirmProof(receipt) {
+      if (stopped || model.busy) return
+      if (receipt?.student_uid !== studentId || !receipt.attendance_session_id ||
+          !['time_in', 'time_out'].includes(receipt.action_type) || !receipt.official_punch_at) return
       const version = ++revision
-      const closing = !!model.state.open_session_id
-      model.busy = true
-      model.ready = false
-      model.error = ''
-      model.notice = ''
-      let accessDenied = false
-      try {
-        const session = await (closing ? api.timeOut() : api.timeIn())
-        if (!current(version)) return
-        if (!session?.id || session.student_uid !== studentId || !session.time_in ||
-            (closing ? !session.time_out : session.time_out !== null)) throw new Error('INVALID_ATTENDANCE_SESSION')
-        // Preserve the server receipt even if subsequent reconciliation fails.
-        model.confirmedSession = session
-        model.records = [session, ...model.records.filter(row => row.id !== session.id)]
-        model.notice = `${closing ? 'Time Out' : 'Time In'} recorded by the server.`
-      } catch (error) {
-        if (!current(version)) return
-        model.error = attendance.attendanceErrorMessage(error)
-        accessDenied = attendance.attendanceAccessError(error)
-      } finally {
-        if (current(version)) {
-          // Also reconcile rejected/unknown outcomes. Never replay a mutation.
-          await reconcile(version)
-          if (current(version)) {
-            model.busy = false
-            if (accessDenied) { model.ready = false; await onAccessError() }
-          }
-        }
-      }
+      model.busy = true; model.ready = false; model.error = ''
+      // Only a validated immutable proof receipt reaches this read-only controller.
+      // Never fabricate an attendance row from photo/location data.
+      model.confirmedSession = { id: receipt.attendance_session_id, student_uid: studentId }
+      model.notice = `${receipt.action_type === 'time_out' ? 'Time Out' : 'Time In'} recorded by the server.`
+      try { await reconcile(version) }
+      finally { if (current(version)) model.busy = false }
     },
     offline() {
       if (stopped) return

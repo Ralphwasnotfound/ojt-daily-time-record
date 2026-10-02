@@ -1,4 +1,5 @@
 begin;
+\ir ../helpers/legacy-attendance.inc
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions,pg_temp;
 select no_plan();
@@ -14,7 +15,7 @@ insert into public.attendance_sessions(student_uid,time_in,time_out) values
 ('70000000-0000-4000-8000-000000000002','2020-01-01 00:00:00+00','2020-01-01 01:00:00.5+00');
 set local role authenticated;
 select set_config('request.jwt.claim.sub','70000000-0000-4000-8000-000000000002',true);
-select public.attendance_time_in();
+select pg_temp.legacy_time_in();
 create temp table draft as select * from public.activity_prepare('71000000-0000-4000-8000-000000000001');
 reset role;
 insert into storage.objects(bucket_id,name,owner_id,metadata) select 'activity-proofs',photo_path,'70000000-0000-4000-8000-000000000002','{"mimetype":"image/png","size":100}'::jsonb from draft;
@@ -26,7 +27,7 @@ select ok((select revision=0 and category='Other' and description='Original desc
 set local role authenticated;
 select set_config('request.jwt.claim.sub','70000000-0000-4000-8000-000000000002',true);
 select public.activity_edit((select id from target),0,'Documentation','First edit');
-select public.attendance_time_out();
+select pg_temp.legacy_time_out();
 create temp table replacement as select * from public.activity_prepare('71000000-0000-4000-8000-000000000002',(select id from target));
 reset role;
 insert into storage.objects(bucket_id,name,owner_id,metadata) select 'activity-proofs',photo_path,'70000000-0000-4000-8000-000000000002','{"mimetype":"image/png","size":100}'::jsonb from replacement;

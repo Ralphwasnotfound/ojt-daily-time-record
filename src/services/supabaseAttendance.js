@@ -46,14 +46,12 @@ export async function getAttendanceSummary() {
       (!!summary.open_session_id !== !!summary.open_time_in)) throw new Error('INVALID_ATTENDANCE_SUMMARY')
   return summary
 }
-function write(name) {
+export function trackAttendanceWrite(operation) {
   if (pendingWrite) return Promise.reject(new Error('ATTENDANCE_BUSY'))
-  const request = rpc(name)
-  pendingWrite = request
-  return request.finally(() => { if (pendingWrite === request) pendingWrite = null })
+  const work = Promise.resolve().then(operation)
+  pendingWrite = work
+  return work.finally(() => { if (pendingWrite === work) pendingWrite = null })
 }
-export function timeIn() { return write('attendance_time_in') }
-export function timeOut() { return write('attendance_time_out') }
 
 // Bounded whole-day history. Identity is taken from auth.uid() by the RPC.
 export function getAttendanceDays(args = {}) { return rpc('attendance_days', args) }

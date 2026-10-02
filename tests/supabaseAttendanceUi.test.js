@@ -20,6 +20,7 @@ const service = await load('supabaseAttendance', { '../supabase/supabase.js': { 
 const { attendanceUiState, createStudentAttendanceController } = await load('supabaseAttendanceController', { './supabaseAttendance.js': service })
 const fresh = () => ({ open_session_id: null, open_time_in: null, started_today: false, completed_seconds: 0, completed_sessions: 0, manila_day:'2026-09-30',starts_today:0,next_action:'time_in',today_sessions:[],open_session_ordinal:null,today_completed_seconds:0,days_present:0 })
 const row = { id: 'session', student_uid: 'alice', time_in: '2026-09-30T00:02:00+00:00', time_out: null }
+const receipt = (action = 'time_in') => ({ student_uid: 'alice', attendance_session_id: 'session', action_type: action, official_punch_at: row.time_in })
 const closed = { ...row, time_out: '2026-09-30T01:02:00+00:00' }
 const opened = () => ({ ...fresh(), open_session_id: row.id, open_time_in: row.time_in, started_today: true, starts_today:1,next_action:'time_out',today_sessions:[row],open_session_ordinal:1,days_present:1 })
 const completed = () => ({ ...fresh(), started_today: true, completed_seconds: 3600, completed_sessions: 2, starts_today:2,next_action:'none',today_sessions:[closed],today_completed_seconds:3600,days_present:1 })
@@ -34,8 +35,6 @@ function fixture(state = fresh(), records = []) {
     waitForAttendanceWrite: async () => {},
     getAttendanceSummary: async () => { calls.push('summary'); return {...state,today_sessions:records} },
     getAttendanceHistory: async uid => { assert.equal(uid, 'alice'); calls.push('history'); return records },
-    timeIn: async () => { calls.push('in'); state=opened(); records=[row]; return row },
-    timeOut: async () => { calls.push('out'); state=completed(); records=[closed]; return closed },
   }
   const controller = createStudentAttendanceController(model, 'alice', () => { access++ }, api)
   return { model, calls, api, controller, access: () => access }
@@ -46,7 +45,7 @@ test('initial load remains unknown/disabled until summary resolves', async () =>
   f.api.getAttendanceSummary=()=>gate.promise
   const load=f.controller.start()
   assert.equal(f.model.ready,false); assert.equal(f.model.loading,true)
-  await f.controller.submit(); assert.ok(!f.calls.includes('in'))
+  assert.equal(f.controller.submit,undefined); assert.ok(!f.calls.includes('in'))
   gate.resolve(fresh()); await load
   assert.equal(f.model.ready,true); assert.equal(f.model.loading,false)
 })
@@ -59,64 +58,31 @@ test('open session restores real server Time In and Time Out action', async () =
   assert.equal(display(f.model).status,'IN'); assert.equal(display(f.model).timeIn,'8:02 AM'); assert.equal(display(f.model).action,'Time Out')
 })
 for (const closing of [false,true]) {
-  test(`${closing?'Time Out':'Time In'} is single-flight and reconciles success`, async () => {
-    const f=fixture(closing?opened():fresh(),closing?[row]:[]); await f.controller.start()
-    const gate=deferred(), operation=closing?'timeOut':'timeIn', original=f.api[operation]
-    let writes=0
-    f.api[operation]=async()=>{ writes++; await gate.promise; return original() }
-    const first=f.controller.submit()
-    await f.controller.submit(); await f.controller.submit()
-    assert.equal(writes,1); assert.equal(f.model.busy,true); assert.equal(f.model.ready,false)
-    gate.resolve(); await first
-    assert.equal(f.model.busy,false); assert.equal(f.model.ready,true)
-    assert.equal(f.model.confirmedSession.id,row.id)
-    assert.equal(f.calls.filter(x=>x==='summary').length,2)
-    assert.equal(display(f.model).status,closing?'OUT':'IN')
-    assert.equal(display(f.model).completedToday,closing)
-  })
+ test(`${closing?'Time Out':'Time In'} proof receipt triggers single-flight trusted reconciliation`,async()=>{
+ const f=fixture(closing?completed():opened(),closing?[closed]:[row]);await f.controller.start()
+ const gate=deferred();f.api.getAttendanceSummary=()=>gate.promise
+ const first=f.controller.confirmProof(receipt(closing?'time_out':'time_in'))
+ await f.controller.confirmProof(receipt());assert.equal(f.model.busy,true);assert.equal(f.model.ready,false)
+ gate.resolve({... (closing?completed():opened()),today_sessions:closing?[closed]:[row]});await first
+ assert.equal(f.model.busy,false);assert.equal(f.model.ready,true);assert.equal(f.model.confirmedSession.id,row.id)
+ assert.equal(display(f.model).status,closing?'OUT':'IN');assert.equal(display(f.model).completedToday,closing)
+ assert.ok(!f.calls.includes('in'));assert.ok(!f.calls.includes('out'))
+ })
 }
-test('completed today cannot submit either operation even after refresh', async () => {
-  const f=fixture(completed(),[closed]); await f.controller.start(); await f.controller.submit(); await f.controller.start()
-  assert.equal(display(f.model).completedToday,true); assert.ok(!f.calls.includes('in')); assert.ok(!f.calls.includes('out'))
+test('read controller has no proof-free writes and rejects foreign receipts',async()=>{
+ const f=fixture();await f.controller.start();assert.equal(f.controller.submit,undefined)
+ await f.controller.confirmProof({...receipt(),student_uid:'bob'});assert.equal(f.model.confirmedSession,null)
+ assert.equal(service.timeIn,undefined);assert.equal(service.timeOut,undefined)
 })
-for (const [message, expected] of [
-  ['ALREADY_TIMED_IN','You are already timed in.'],
-  ['ALREADY_STARTED_TODAY','You have already completed your attendance for today.'],
-  ['NO_OPEN_ATTENDANCE','There is no active attendance session to time out.'],
-  ['APPROVED_STUDENT_REQUIRED','Attendance requires an approved student account. Please check your account status.'],
-]) test(`${message} has friendly feedback and reconciles`, async () => {
-  const f=fixture(); await f.controller.start()
-  f.api.timeIn=async()=>{ throw { code:'P0001',message } }
-  await f.controller.submit()
-  assert.equal(f.model.error,expected); assert.equal(f.calls.filter(x=>x==='summary').length,2)
-  if(message==='APPROVED_STUDENT_REQUIRED') { assert.equal(f.model.ready,false); assert.equal(f.access(),1) }
+test('failed trusted refresh blocks actions and preserves confirmed receipt',async()=>{
+ const f=fixture();await f.controller.start();f.api.getAttendanceSummary=async()=>{throw new Error('private database detail')}
+ await f.controller.confirmProof(receipt());assert.equal(f.model.ready,false);assert.equal(f.model.busy,false)
+ assert.equal(f.model.confirmedSession.id,row.id);assert.match(f.model.notice,/Time In recorded/);assert.doesNotMatch(f.model.error,/private database/)
+ f.api.getAttendanceSummary=async()=>fresh();await f.controller.start();assert.equal(f.model.ready,true)
 })
-test('unknown committed write reconciles before allowing the next action; never replays', async () => {
-  const f=fixture(); await f.controller.start()
-  let writes=0; const gate=deferred()
-  f.api.timeIn=async()=>{ writes++; throw new TypeError('Failed to fetch') }
-  f.api.getAttendanceHistory=async()=>[row]
-  f.api.getAttendanceSummary=()=>gate.promise
-  const mutation=f.controller.submit()
-  await new Promise(resolve=>setImmediate(resolve))
-  await f.controller.submit(); assert.equal(writes,1); assert.equal(f.model.ready,false)
-  gate.resolve(opened()); await mutation
-  assert.equal(f.model.ready,true); assert.equal(display(f.model).action,'Time Out'); assert.equal(writes,1)
-})
-test('failed reconciliation blocks writes until explicit successful refresh', async () => {
-  const f=fixture(); await f.controller.start()
-  f.api.timeIn=async()=>{ throw new Error('private database detail') }
-  f.api.getAttendanceSummary=async()=>{ throw new Error('network') }
-  await f.controller.submit()
-  assert.equal(f.model.ready,false); assert.equal(f.model.busy,false); assert.doesNotMatch(f.model.error,/private database/)
-  await f.controller.submit()
-  f.api.getAttendanceSummary=async()=>fresh(); await f.controller.start(); assert.equal(f.model.ready,true)
-})
-test('confirmed receipt survives summary failure without re-enabling actions', async () => {
-  const f=fixture(); await f.controller.start()
-  f.api.getAttendanceSummary=async()=>{throw new Error('network')}
-  await f.controller.submit()
-  assert.equal(f.model.confirmedSession.id,row.id); assert.match(f.model.notice,/Time In recorded/); assert.equal(f.model.ready,false)
+test('revoked access during trusted refresh invokes profile reconciliation',async()=>{
+ const f=fixture();f.api.getAttendanceSummary=async()=>{throw new Error('APPROVED_STUDENT_REQUIRED')}
+ await f.controller.start();assert.equal(f.model.ready,false);assert.equal(f.access(),1)
 })
 test('stop/account change clears data and ignores late reads', async () => {
   const f=fixture(),gate=deferred(); f.api.getAttendanceSummary=()=>gate.promise
@@ -124,10 +90,10 @@ test('stop/account change clears data and ignores late reads', async () => {
   f.controller.stop(); gate.resolve(opened()); await loading
   assert.equal(f.model.state,null); assert.deepEqual(f.model.records,[]); assert.equal(f.model.ready,false)
 })
-test('stop during mutation cannot restore the previous account data', async () => {
-  const f=fixture(); await f.controller.start(); const gate=deferred(); f.api.timeIn=()=>gate.promise
-  const pending=f.controller.submit(); f.controller.stop(); gate.resolve(row); await pending
-  assert.equal(f.model.confirmedSession,null); assert.equal(f.model.state,null); assert.equal(f.model.ready,false)
+test('stop during receipt reconciliation cannot restore previous account data',async()=>{
+ const f=fixture();await f.controller.start();const gate=deferred();f.api.getAttendanceSummary=()=>gate.promise
+ const pending=f.controller.confirmProof(receipt());f.controller.stop();gate.resolve(opened());await pending
+ assert.equal(f.model.confirmedSession,null);assert.equal(f.model.state,null);assert.equal(f.model.ready,false)
 })
 test('remount waits for an earlier view write before requesting history', async () => {
   const f=fixture(opened(),[row]),gate=deferred(); f.api.waitForAttendanceWrite=()=>gate.promise
@@ -140,7 +106,7 @@ test('cross-user rows and inconsistent snapshots fail closed', async () => {
   }
 })
 test('offline invalidates state until refreshed', async () => {
-  const f=fixture(); await f.controller.start(); f.controller.offline(); await f.controller.submit()
+  const f=fixture(); await f.controller.start(); f.controller.offline()
   assert.equal(f.model.ready,false); assert.ok(!f.calls.includes('in'))
   await f.controller.start(); assert.equal(f.model.ready,true)
 })
@@ -154,13 +120,11 @@ test('browser date does not override started_today policy; overnight remains ope
   assert.equal(result.action,'Time Out'); assert.equal(result.carriedOver,true)
   assert.match(formatAttendanceRows([{...row,time_out:'2026-10-01T00:00:00Z'}])[0].timeOut,/October 1, 2026/)
 })
-test('RPC service sends no identity/time arguments and prevents parallel writes', async () => {
-  const gate=deferred(),calls=[]
-  const query={ retry(enabled){assert.equal(enabled,false);return this},abortSignal(signal){assert.ok(signal instanceof AbortSignal);return gate.promise} }
-  const api=await load('supabaseAttendance', {'../supabase/supabase.js':{supabase:{rpc(...args){calls.push(args);return query}}}})
-  const first=api.timeIn(); await assert.rejects(api.timeOut(),/ATTENDANCE_BUSY/)
-  gate.resolve({data:row,error:null}); assert.deepEqual(await first,row)
-  assert.deepEqual(calls,[['attendance_time_in']])
+test('shared write tracker prevents parallel finalizations and read waits',async()=>{
+ const gate=deferred();const first=service.trackAttendanceWrite(()=>gate.promise)
+ await assert.rejects(service.trackAttendanceWrite(async()=>{}),/ATTENDANCE_BUSY/)
+ let done=false;const waiting=service.waitForAttendanceWrite().then(()=>done=true)
+ await Promise.resolve();assert.equal(done,false);gate.resolve('receipt');assert.equal(await first,'receipt');await waiting;assert.equal(done,true)
 })
 test('history requests one bounded server day page with date/cursor filters', async () => {
  const calls=[];const api=await load('supabaseAttendance',{'../supabase/supabase.js':{supabase:{rpc(name,args){calls.push([name,args]);return {retry(){return this},abortSignal(){return {data:{days:[],next_before_day:null},error:null}}}}}}})
@@ -207,5 +171,5 @@ for (const [starts,open,action,label] of [[0,false,'time_in','Time In'],[1,true,
  const result=presentAttendance(state,[],profile,Date.now());assert.equal(result.action,label);assert.equal(result.completedToday,action==='none');assert.equal(result.days,starts?1:0);if(starts===2)assert.equal(result.todayHours,'8h 00m')
 })
 test('U3 first closed session allows a second Time In without history read',async()=>{
- const f=fixture({...completed(),starts_today:1,next_action:'time_in'},[closed]);await f.controller.start();await f.controller.submit();assert.ok(f.calls.includes('in'));assert.ok(!f.calls.includes('history'))
+ const f=fixture({...completed(),starts_today:1,next_action:'time_in'},[closed]);await f.controller.start();assert.equal(display(f.model).action,'Time In Again');assert.ok(!f.calls.includes('history'))
 })

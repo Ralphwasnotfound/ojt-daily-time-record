@@ -37,7 +37,11 @@ export default {
       <h3 class="font-semibold">{{ date(group.start_day) }}</h3>
       <div v-for="(row, index) in formatAttendanceRows(group.sessions)" :key="row.id" class="mt-3 border-t border-stone-100 pt-3 text-sm">
         <p class="font-semibold text-brand">Session {{ group.sessions[index].session_ordinal }}</p>
-        <dl class="mt-2 grid gap-3 sm:grid-cols-3"><div><dt class="text-xs text-stone-500">Time In</dt><dd>{{ row.timeIn }}</dd></div><div><dt class="text-xs text-stone-500">Time Out</dt><dd>{{ row.timeOut }}</dd></div><div><dt class="text-xs text-stone-500">{{ row.status }}</dt><dd>{{ row.hours }}</dd></div></dl>
+        <dl class="mt-2 grid gap-3 sm:grid-cols-3">
+          <div><dt class="text-xs text-stone-500">Time In</dt><dd>{{ row.timeIn }}<slot name="proof" :session="group.sessions[index]" action="time_in" /></dd></div>
+          <div><dt class="text-xs text-stone-500">Time Out</dt><dd>{{ row.timeOut }}<slot v-if="group.sessions[index].time_out" name="proof" :session="group.sessions[index]" action="time_out" /></dd></div>
+          <div><dt class="text-xs text-stone-500">{{ row.status }}</dt><dd>{{ row.hours }}</dd></div>
+        </dl>
       </div>
       <p class="mt-4 text-sm font-semibold">Daily completed total · {{ duration(group.completed_seconds) }}</p>
     </article>

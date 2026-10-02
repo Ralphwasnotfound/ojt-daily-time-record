@@ -1,3 +1,4 @@
+import { proofPunch, proofCleanupSql } from './helpers/attendanceProofFixtures.js'
 // Real local Auth/REST/Storage integration only. Never reads .env or hosted keys.
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -34,7 +35,9 @@ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42
 test('S5 local activity RPCs and private Storage lifecycle',async t=>{
   const config=localConfig()
   const client=key=>createClient(config.API_URL,key||config.ANON_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}})
-  const root=client(config.SERVICE_ROLE_KEY),anonymous=client(),fixtures=[],paths=new Set()
+  const root=client(config.SERVICE_ROLE_KEY),anonymous=client(),fixtures=[],paths=new Set(),attendancePaths=new Set()
+  // Preserve manual U4 evidence: this suite may share the local DB with real test students.
+  const existingStudents=Number(sql("select count(*) from public.profiles where role='student'"))
   async function fixture(label,role='student',status='approved',adminId=null) {
     const email=`s5-${randomUUID()}@example.invalid`,password=randomUUID()+'aA1!'
     const {user}=await success(root.auth.admin.createUser({email,password,email_confirm:true}))
@@ -73,7 +76,7 @@ test('S5 local activity RPCs and private Storage lifecycle',async t=>{
     })
     await t.test('preparation requires open attendance and retries preserve the server allocation',async()=>{
       await failure(alice.client.rpc('activity_prepare',{request_id:randomUUID()}),'NO_OPEN_ATTENDANCE')
-      await success(alice.client.rpc('attendance_time_in'));await success(bob.client.rpc('attendance_time_in'))
+      await success(proofPunch(alice.client,'time_in',attendancePaths));await success(proofPunch(bob.client,'time_in',attendancePaths))
       const request=randomUUID();draft=await prepare(alice,null,request)
       assert.deepEqual(await prepare(alice,null,request),draft)
       assert.equal(draft.photo_path,`${alice.id}/${draft.activity_id}/proof`)
@@ -146,7 +149,7 @@ test('S5 local activity RPCs and private Storage lifecycle',async t=>{
       await failure(alice.client.rpc('activity_history',{page_size:101}),'INVALID_PAGE')
     })
     await t.test('Time Out during upload prevents finalization; discarded orphan can be removed safely',async()=>{
-      const late=await prepare(alice);await success(upload(alice,late));await success(alice.client.rpc('attendance_time_out'))
+      const late=await prepare(alice);await success(upload(alice,late));await success(proofPunch(alice.client,'time_out',attendancePaths))
       await failure(create(alice,late),'NO_OPEN_ATTENDANCE')
       await discard(alice,late)
       await failure(alice.client.storage.from('activity-proofs').download(late.photo_path))
@@ -220,7 +223,7 @@ test('S5 local activity RPCs and private Storage lifecycle',async t=>{
       const record=state.saved
       assert.equal((await api.history(3))[0].id,record.id)
       assert.equal((await api.download(record.photo_path)).size,png.length)
-      await success(bob.client.rpc('attendance_time_out'))
+      await success(proofPunch(bob.client,'time_out',attendancePaths))
       await controller.save({category:'Other',description:'S6 replacement after Time Out',file:new Blob([png],{type:'image/png'})},record)
       assert.equal(state.saved.revision,1);assert.equal(state.saved.created_at,record.created_at)
       assert.notEqual(state.saved.photo_path,record.photo_path)
@@ -232,7 +235,7 @@ test('S5 local activity RPCs and private Storage lifecycle',async t=>{
         return new SyntheticModule(Object.keys(values),function(){for(const [key,value]of Object.entries(values))this.setExport(key,value)})
       });await module.evaluate()
       const api=module.namespace.createAdminApi(admin.client,()=>admin.id)
-      assert.equal((await api.dashboard()).total,4)
+      assert.equal((await api.dashboard()).total,existingStudents+4)
       const students=await api.students({page_size:1,search:'Bob',account_status:'approved'})
       assert.equal(students.length,1);assert.equal(students[0].id,bob.id)
       assert.ok(Number(students[0].completed_seconds)>=0)
@@ -267,27 +270,28 @@ test('S5 local activity RPCs and private Storage lifecycle',async t=>{
     })
     await t.test('U3 activities remain attached to their exact session across a two-session day',async()=>{
       const who=await fixture('U3','student','approved',admin.id)
-      const first=await success(who.client.rpc('attendance_time_in'))
+      const first=await success(proofPunch(who.client,'time_in',attendancePaths))
       const firstDraft=await prepare(who);await success(upload(who,firstDraft));const firstActivity=await success(create(who,firstDraft))
       assert.equal(firstActivity.attendance_session_id,first.id)
       const abandoned=await prepare(who);await success(upload(who,abandoned))
-      await success(who.client.rpc('attendance_time_out'))
+      await success(proofPunch(who.client,'time_out',attendancePaths))
       await failure(who.client.rpc('activity_prepare',{request_id:randomUUID()}),'NO_OPEN_ATTENDANCE')
-      const second=await success(who.client.rpc('attendance_time_in'))
+      const second=await success(proofPunch(who.client,'time_in',attendancePaths))
       await failure(create(who,abandoned),'NO_OPEN_ATTENDANCE')
       const secondDraft=await prepare(who);await success(upload(who,secondDraft));const secondActivity=await success(create(who,secondDraft))
       assert.equal(secondActivity.attendance_session_id,second.id);assert.notEqual(second.id,first.id)
-      await success(who.client.rpc('attendance_time_out'))
+      await success(proofPunch(who.client,'time_out',attendancePaths))
       await failure(who.client.rpc('activity_prepare',{request_id:randomUUID()}),'NO_OPEN_ATTENDANCE')
       const edited=await success(edit(who,firstActivity,'After both sessions'))
       assert.equal(edited.attendance_session_id,first.id);assert.equal(edited.created_at,firstActivity.created_at)
     })
   } finally {
     // Only paths allocated by this test and UUIDs it created; trusted LOCAL cleanup.
+    if(attendancePaths.size)await success(root.storage.from('attendance-proofs').remove([...attendancePaths]))
     if(paths.size)await success(root.storage.from('activity-proofs').remove([...paths]))
     if(fixtures.length) {
       const ids=fixtures.map(f=>`'${f.id}'`).join(',')
-      sql(`begin; alter table public.activity_revisions disable trigger audit_immutable;
+      sql(`begin; ${proofCleanupSql(ids)} alter table public.activity_revisions disable trigger audit_immutable;
         delete from public.activity_revisions where student_uid in (${ids});
         alter table public.activity_revisions enable trigger audit_immutable;
         delete from public.activities where student_uid in (${ids});

@@ -1,3 +1,4 @@
+import { proofPunch, proofCleanupSql } from './helpers/attendanceProofFixtures.js'
 // Local-only websocket/RLS test. Never reads project .env or hosted credentials.
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -17,7 +18,7 @@ test('U3 real local Realtime INSERT/UPDATE honors attendance RLS',async()=>{
  assert.equal(JSON.parse(Buffer.from(config.ANON_KEY.split('.')[1],'base64url')).role,'anon')
  assert.equal(sql("select pubinsert and pubupdate and not pubdelete and not pubtruncate from pg_publication where pubname='supabase_realtime';"),'t')
  const make=key=>createClient(config.API_URL,key||config.ANON_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}})
- const root=make(config.SERVICE_ROLE_KEY),fixtures=[],clients=[root]
+ const root=make(config.SERVICE_ROLE_KEY),fixtures=[],clients=[root],attendancePaths=new Set()
  async function fixture(role,status,adminId) {
   const email=`u3-${randomUUID()}@example.invalid`,password=randomUUID()+'aA1!'
   const {user}=await success(root.auth.admin.createUser({email,password,email_confirm:true}));fixtures.push(user.id)
@@ -38,11 +39,11 @@ test('U3 real local Realtime INSERT/UPDATE honors attendance RLS',async()=>{
   }
   const summaryState=async(expected,starts)=>{const s=(await success(alice.client.rpc('attendance_summary')))[0];assert.equal(s.next_action,expected);assert.equal(Number(s.starts_today),starts)}
   await summaryState('time_in',0)
-  await success(alice.client.rpc('attendance_time_in'));await summaryState('time_out',1)
-  await success(alice.client.rpc('attendance_time_out'));await summaryState('time_in',1)
-  await success(alice.client.rpc('attendance_time_in'));await summaryState('time_out',2)
-  await success(alice.client.rpc('attendance_time_out'));await summaryState('none',2)
-  const denied=await alice.client.rpc('attendance_time_in');assert.equal(denied.error?.message,'DAILY_ATTENDANCE_LIMIT_REACHED')
+  await success(proofPunch(alice.client,'time_in',attendancePaths));await summaryState('time_out',1)
+  await success(proofPunch(alice.client,'time_out',attendancePaths));await summaryState('time_in',1)
+  await success(proofPunch(alice.client,'time_in',attendancePaths));await summaryState('time_out',2)
+  await success(proofPunch(alice.client,'time_out',attendancePaths));await summaryState('none',2)
+  const denied=await proofPunch(alice.client,'time_in',attendancePaths);assert.equal(denied.error?.message,'DAILY_ATTENDANCE_LIMIT_REACHED')
   for(let i=0;i<100&&admin.events.length<4;i++)await sleep(100)
   await sleep(1000)
   assert.equal(admin.events.length,4);assert.equal(alice.events.length,4)
@@ -55,7 +56,8 @@ test('U3 real local Realtime INSERT/UPDATE honors attendance RLS',async()=>{
   const days=await success(admin.client.rpc('admin_attendance_days',{target_uid:alice.id}));assert.equal(days.days[0].sessions.length,2)
  } finally {
   for(const client of clients)await client.removeAllChannels()
-  if(fixtures.length){const ids=fixtures.map(id=>`'${id}'`).join(',');sql(`delete from attendance_sessions where student_uid in (${ids});delete from profiles where id in (${ids}) and role='student';delete from profiles where id in (${ids});`)}
+  if(attendancePaths.size)await success(root.storage.from('attendance-proofs').remove([...attendancePaths]))
+  if(fixtures.length){const ids=fixtures.map(id=>`'${id}'`).join(',');sql(`begin; ${proofCleanupSql(ids)} delete from attendance_sessions where student_uid in (${ids});delete from profiles where id in (${ids}) and role='student';delete from profiles where id in (${ids}); commit;`)}
   for(const id of fixtures)await success(root.auth.admin.deleteUser(id))
  }
 })

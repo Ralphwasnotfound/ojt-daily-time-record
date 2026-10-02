@@ -9,6 +9,7 @@ export default {
     return { attendanceUi: attendanceUiState(), attendanceController: null, displayNow: Date.now(), attendanceClock: null }
   },
   computed: {
+    attendanceStudentUid() { return authState.user?.id || '' },
     attendanceAccountKey() { return `${authState.user?.id}:${authState.profile?.uid}:${authState.profile?.role}:${authState.profile?.status}` },
     attendanceEligible() {
       return authState.provider === 'supabase' && !!authState.user && authState.profile?.uid === authState.user.id &&
@@ -82,13 +83,9 @@ export default {
       if (this.attendanceUi.busy) return
       this.displayNow = Date.now()
       if (navigator.onLine === false) this.attendanceOffline()
-      else this.attendanceController?.start()
+      else return this.attendanceController?.start()
     },
     attendanceOffline() { this.attendanceController?.offline() },
-    async submitAttendance() {
-      if (this.attendanceActionDisabled) return
-      await this.attendanceController.submit()
-    },
     badgeClass(status) { return status === 'Complete' ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900' },
   },
 }

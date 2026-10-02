@@ -23,6 +23,7 @@ async function load(file, {state=auth(),client={},review=async()=>{},globals={},
       if(signals && specifier.endsWith('adminAttendanceSignals.js'))return synthetic({adminAttendanceSignals:signals})
       if(specifier==='vue')return synthetic(virtualHost ? {...vue,vModelText:{},vModelSelect:{}} : vue)
       if(specifier==='lucide-vue-next')return synthetic(icons)
+      if(specifier.endsWith('.png'))return synthetic({default:'/bsit-logo.png'})
       if(/\/auth(?:\.js)?$/.test(specifier))return synthetic({authState:state})
       if(/supabase\/supabase\.js$/.test(specifier))return synthetic({supabase:client})
       if(/\/users$/.test(specifier))return synthetic({reviewStudent:review,profileFromRow:r=>({uid:r.id,fullName:r.full_name,studentId:r.student_id,email:r.email,status:r.status,program:r.program,rosterEligible:r.roster_eligible===true,createdAt:r.created_at})})
