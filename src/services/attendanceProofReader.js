@@ -1,3 +1,4 @@
+import { createProofLocationResolver } from './attendanceProofLocation.js'
 const zone = 'Asia/Manila'
 function manilaDay(value) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value))
@@ -6,6 +7,7 @@ function manilaDay(value) {
 // Read-only U4.4 presentation. RLS remains the authority; the local identity
 // check also prevents a response from being displayed after an account change.
 export function createAttendanceProofReader(client, identity, role = 'admin') {
+  const location = createProofLocationResolver(client, identity)
   function owner(studentUid) {
     if (role === 'student' && (!identity() || studentUid !== identity())) throw new Error('OWN_PROOF_REQUIRED')
   }
@@ -19,6 +21,8 @@ export function createAttendanceProofReader(client, identity, role = 'admin') {
     return data
   }
   return {
+    location: location.resolve,
+    clearLocationCache: location.clear,
     async available(studentUid, sessionIds, signal) {
       owner(studentUid)
       if (!sessionIds.length) return []
@@ -31,7 +35,7 @@ export function createAttendanceProofReader(client, identity, role = 'admin') {
       owner(studentUid)
       if (!['time_in', 'time_out'].includes(action)) throw new Error('INVALID_EVIDENCE')
       const select = (table, fields) => client.from(table).select(fields).abortSignal(signal)
-      const proof = await read(() => select('attendance_proofs', 'student_uid,attendance_session_id,action_type,official_punch_at,latitude,longitude,accuracy,photo_path')
+      const proof = await read(() => select('attendance_proofs', 'id,student_uid,attendance_session_id,action_type,official_punch_at,latitude,longitude,accuracy,photo_path')
         .eq('student_uid', studentUid).eq('attendance_session_id', sessionId).eq('action_type', action).maybeSingle(), signal)
       if (!proof) return null // Historical attendance may legitimately have no proof.
       const [students, session] = await Promise.all([
