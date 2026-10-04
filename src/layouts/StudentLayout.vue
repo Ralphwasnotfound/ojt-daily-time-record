@@ -24,6 +24,11 @@ export default {
           "icon": "ClipboardPen"
         },
         {
+          "to": "/student/journal",
+          "label": "Journal",
+          "icon": "BookOpen"
+        },
+        {
           "to": "/student/history",
           "label": "History",
           "icon": "History"

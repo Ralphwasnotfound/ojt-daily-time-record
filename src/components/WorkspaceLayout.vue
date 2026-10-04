@@ -1,5 +1,5 @@
 <script>
-import { ArrowLeft, Menu, X, UserRound, LogOut, LayoutDashboard, Clock, ClipboardPen, History, Users, Activity } from 'lucide-vue-next'
+import { ArrowLeft, Menu, X, UserRound, LogOut, LayoutDashboard, Clock, ClipboardPen, History, Users, Activity, BookOpen } from 'lucide-vue-next'
 
 import logoUrl from '../assets/bsit-logo.png'
 import LogoutDialog from './LogoutDialog.vue'
@@ -7,7 +7,7 @@ import { logout } from '../services/auth'
 
 export default {
   name: 'WorkspaceLayout',
-  components: { LogoutDialog, ArrowLeft, Menu, X, UserRound, LogOut, LayoutDashboard, Clock, ClipboardPen, History, Users, Activity },
+  components: { LogoutDialog, ArrowLeft, Menu, X, UserRound, LogOut, LayoutDashboard, Clock, ClipboardPen, History, Users, Activity, BookOpen },
   props: {
     role: { type: String, required: true },
     items: { type: Array, required: true },

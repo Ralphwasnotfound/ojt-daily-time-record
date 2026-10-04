@@ -11,6 +11,7 @@ import StudentDashboard from '../views/student/StudentDashboard.vue'
 import AttendanceView from '../views/student/AttendanceView.vue'
 import ActivityView from '../views/student/ActivityView.vue'
 import HistoryView from '../views/student/HistoryView.vue'
+import JournalView from '../views/student/JournalView.vue'
 import AdminDashboard from '../views/admin/AdminDashboard.vue'
 import StudentsView from '../views/admin/StudentsView.vue'
 import StudentDetailsView from '../views/admin/StudentDetailsView.vue'
@@ -34,6 +35,7 @@ const router = createRouter({
         { path: 'attendance', name: 'student-attendance', component: AttendanceView },
         { path: 'activity', name: 'student-activity', component: ActivityView },
         { path: 'history', name: 'student-history', component: HistoryView },
+        { path: 'journal', name: 'student-journal', component: JournalView },
         { path: 'profile', name: 'student-profile', component: StudentProfileView },
       ],
     },
